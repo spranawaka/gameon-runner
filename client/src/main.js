@@ -6,13 +6,13 @@ const screens=['menu','setup','countdown','paused','over'];
 let flow='menu',mode='camera',pendingRun=null,saving=false,countTimer=null,lastPose=0,lostSince=0,countRemaining=5,countLast=0,requestToken=0;
 const motion=new PoseMotion();
 function display(next){
- flow=next;for(const id of screens)$(id).hidden=id!==next;
- $('hud').hidden=!['playing','paused','over'].includes(next);$('pause').hidden=next!=='playing';
+ flow=next;document.body.dataset.screen=next;for(const id of screens)$(id).hidden=id!==next;
+ $('hud').hidden=!['playing'].includes(next);$('pause').hidden=next!=='playing';
  $('touch-controls').hidden=next!=='playing'||mode!=='keyboard';$('footer').hidden=next!=='menu';
  $('camera-panel').hidden=mode!=='camera'||!['setup','countdown','playing','paused'].includes(next);
 }
 function setStatus(text){$('setup-status').textContent=text;}
-function updateReady(){if(flow==='menu'){$('play').disabled=!game.ready;$('play').textContent=game.ready?'Start running →':'Preparing your trail…';if(game.ready)$('load-status').textContent=mode==='camera'?'Webcam controls · no login needed':'Keyboard controls · no login needed';}}
+function updateReady(){if(flow==='menu'){$('play').disabled=!game.ready;$('play').textContent=game.ready?'START ▶':'Preparing your trail…';if(game.ready)$('load-status').textContent=mode==='camera'?'Webcam controls · no login needed':'Keyboard controls · no login needed';}}
 function setMode(next){mode=next;for(const name of ['camera','keyboard']){$('mode-'+name).classList.toggle('active',name===mode);$('mode-'+name).setAttribute('aria-pressed',String(name===mode));}updateReady();}
 function stopCount(){clearInterval(countTimer);countTimer=null;}
 function home(){requestToken++;stopCount();camera.stop();motion.reset();pendingRun=null;$('score-form').reset();$('save-status').textContent='';game.setSquat(false);game.home();display('menu');updateReady();}
@@ -27,7 +27,7 @@ function trackingLost(message){$('camera-status').textContent='Tracking unavaila
 function onPose(points,time){
  drawPose(points);
  if(flow==='setup'){
-  const calibration=motion.calibrate(points,time);$('calibration-progress').style.width=calibration.progress*100+'%';
+  const calibration=motion.calibrate(points,time);$('calibration-progress').style.width=calibration.progress*100+'%';document.querySelector('.calibration-track').setAttribute('aria-valuenow',String(Math.round(calibration.progress*100)));
   $('camera-status').textContent=points?'Hold still for calibration':'Step back into view';$('tracking-dot').classList.toggle('tracked',!!points);
   if(calibration.ready){lastPose=time;beginCountdown();}
   return;
@@ -46,7 +46,7 @@ async function start(){
  if(!game.ready||flow!=='menu')return;
  const token=++requestToken;pendingRun=null;$('score-form').reset();$('save-status').textContent='';
  if(mode==='keyboard'){beginCountdown();return;}
- motion.reset();lastPose=0;lostSince=0;$('calibration-progress').style.width='0';display('setup');
+ motion.reset();lastPose=0;lostSince=0;$('calibration-progress').style.width='0';document.querySelector('.calibration-track').setAttribute('aria-valuenow','0');display('setup');
  try{const ready=await camera.start();if(!ready||token!==requestToken)return;}
  catch(e){if(token!==requestToken)return;camera.stop();setStatus(e.message);$('camera-status').textContent='Camera unavailable';}
 }
@@ -66,7 +66,7 @@ function beginCountdown(){
 async function loadLeaderboard(){
  $('refresh-board').disabled=true;$('leaderboard-status').textContent='Loading leaderboard…';
  try{const res=await fetch('/api/leaderboard',{cache:'no-store'});const data=await res.json();if(!res.ok)throw new Error(data.error);$('leaderboard').replaceChildren();
-  for(const row of data.scores){const li=document.createElement('li');for(const [className,text]of[['rank',String(row.rank).padStart(2,'0')],['runner',row.name],['points',row.score.toLocaleString()]]){const el=document.createElement('span');el.className=className;el.textContent=text;li.append(el);}$('leaderboard').append(li);}
+  for(const row of data.scores){const li=document.createElement('li');for(const [className,text]of[['rank',String(row.rank)],['avatar',row.name.trim().charAt(0).toUpperCase()],['runner',row.name],['points',row.score.toLocaleString()]]){const el=document.createElement('span');el.className=className;el.textContent=text;if(className==='avatar'){el.setAttribute('aria-hidden','true');el.style.setProperty('--avatar-hue',String([...row.name].reduce((n,c)=>n+c.charCodeAt(0),0)%360));}li.append(el);}$('leaderboard').append(li);}
   $('leaderboard-status').textContent=data.scores.length?'':'Be the first to leave your mark.';
  }catch(e){$('leaderboard-status').textContent=e.message||'Leaderboard unavailable. You can still play.';}finally{$('refresh-board').disabled=false;}
 }
@@ -78,7 +78,7 @@ $('score-form').addEventListener('submit',async event=>{
   const data=await res.json();if(!res.ok)throw new Error(data.error||'Could not save. Please retry.');
   home();await loadLeaderboard();$('load-status').textContent='Score saved · your best: '+data.bestScore.toLocaleString();
  }catch(e){$('save-status').textContent=e.name==='TimeoutError'?'Save timed out. Please retry or skip.':e.message||'Could not save. Please retry or skip.';}
- finally{saving=false;$('save-score').disabled=false;$('skip-score').disabled=false;$('save-score').textContent='Save score →';}
+ finally{saving=false;$('save-score').disabled=false;$('skip-score').disabled=false;$('save-score').textContent='SAVE SCORE ▶';}
 });
 // No fetch, beacon, cookie or storage write runs on Skip.
 $('skip-score').onclick=()=>{if(!saving)home();};
