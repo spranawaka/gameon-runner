@@ -1,0 +1,1 @@
+Three.js — MIT license. Google MediaPipe Tasks Vision — Apache-2.0. MongoDB Node.js driver — Apache-2.0. Express — MIT. Dependency versions and license metadata are recorded in package-lock.json and installed packages. Game models and reference assets were supplied by the user. Pose model is downloaded from Google MediaPipe model storage.

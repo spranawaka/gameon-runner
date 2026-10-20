@@ -1,0 +1,22 @@
+{
+  "name": "gameon-runner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "postinstall": "node scripts/setup-pose.mjs",
+    "start": "node server/src/index.js",
+    "dev": "node --watch server/src/index.js",
+    "test": "node --test server/tests/*.test.js client/tests/*.test.js",
+    "test:rules": "node client/src/rules.test.js",
+    "setup:pose": "node scripts/setup-pose.mjs",
+    "test:mongodb": "node scripts/verify-mongo.mjs"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "automated_tests": 8,
+  "automated_tests_result": "PASS",
+  "game_rules": "PASS",
+  "mongodb_connection": "connected",
+  "live_mongodb_best_score_concurrency": "PASS (temporary collection removed)",
+  "browser_countdown": [
+    "5",
+    "4",
+    "3",
+    "2",
+    "1",
+    "GO!"
+  ],
+  "browser_score_save_and_leaderboard": "PASS (explicit memory test server, no production test scores)",
+  "browser_skip_with_entered_identity": "PASS, returned home without saving",
+  "real_mediapipe_worker_inference": "PASS",
+  "synthetic_video_camera_calibration_and_cleanup": "PASS",
+  "browser_asset_errors_after_CSP_correction": 0,
+  "physical_webcam_movements": "Not tested; calibrate using the actual camera/player setup."
+}

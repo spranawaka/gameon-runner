@@ -1,0 +1,13 @@
+{
+  "name": "@gameon-runner/client",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node ../server/src/index.js",
+    "start": "node ../server/src/index.js"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "0.10.32"
+  }
+}

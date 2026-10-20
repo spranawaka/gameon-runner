@@ -1,0 +1,82 @@
+import * as T from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {loadCoinTemplate} from './coin.js?logo=2';
+import {Mascot} from './mascot.js';
+import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
+import {LANES,speedAt,hitObstacle,crossed,scoreFor,clampLane} from './rules.js';
+const $=id=>document.getElementById(id),canvas=$('game');
+let renderer;
+try{renderer=new T.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'});}catch(e){$('load-status').textContent='WebGL is unavailable. Enable hardware acceleration or try another browser.';throw e;}
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));renderer.setSize(innerWidth,innerHeight);renderer.outputColorSpace=T.SRGBColorSpace;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.25;renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;
+const scene=new T.Scene();scene.background=new T.Color('#c4e2d3');scene.fog=new T.Fog('#c4e2d3',48,145);
+const camera=new T.PerspectiveCamera(57,innerWidth/innerHeight,.1,220);camera.position.set(0,4.3,7.4);camera.lookAt(0,1,-13);
+scene.add(new T.HemisphereLight(0xdaf4ff,0x677d3a,2.0));const sun=new T.DirectionalLight(0xffecc8,3.2);sun.position.set(-12,22,9);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);Object.assign(sun.shadow.camera,{left:-14,right:14,top:20,bottom:-25,near:.5,far:75});sun.shadow.bias=-.0005;sun.target.position.set(0,0,-15);scene.add(sun,sun.target);
+const scenery=new T.Group();scene.add(scenery);let tiles=[],environmentReady=false,chosen='forest',state='menu',loadToken=0;
+const cache=new Map(),loader=new GLTFLoader();
+const material=(color,extra={})=>new T.MeshStandardMaterial({color,roughness:.75,...extra});
+const blue=material('#00b5e2',{metalness:.15,roughness:.35}),white=material('#f3f4eb'),dark=material('#112d39'),wood=material('#713b1f'),cut=material('#d89a51'),stone=material('#7d8586'),stripe=material('#f5d45b');
+function mesh(geo,mat,parent,x=0,y=0,z=0){const o=new T.Mesh(geo,mat);o.position.set(x,y,z);o.castShadow=true;o.receiveShadow=true;parent.add(o);return o;}
+const box=(w,h,d,m,p,x=0,y=0,z=0)=>mesh(new T.BoxGeometry(w,h,d),m,p,x,y,z);
+const sphere=(r,m,p,x=0,y=0,z=0)=>mesh(new T.SphereGeometry(r,16,12),m,p,x,y,z);
+const player=new T.Group(),body=new T.Group();scene.add(player);player.add(body);
+const mascot=new Mascot(body);
+let characterReady=false,coinReady=false;
+function updateReady(){document.dispatchEvent(new CustomEvent('game-ready',{detail:{ready:environmentReady&&characterReady&&coinReady}}));}
+mascot.load(loader,'assets/Mascot_Animated.glb').then(()=>{characterReady=true;updateReady();}).catch(e=>{console.error('Mascot load failed',e);$('load-status').textContent='Could not load mascot. Start the local server and reload.';});
+const shadow=mesh(new T.CircleGeometry(.48,24),new T.MeshBasicMaterial({color:0x153023,transparent:true,opacity:.22,depthWrite:false}),scene,0,.015,0);shadow.rotation.x=-Math.PI/2;
+let lane=1,x=0,height=0,velocity=0,slideLeft=0,distance=0,coinCount=0,elapsed=0,spawnAt=22,entities=[],best=0,animTime=0,invincible=false;
+
+let sound=false,audio;function tone(freq,duration=.1){if(!sound)return;try{audio??=new AudioContext();audio.resume();const osc=audio.createOscillator(),gain=audio.createGain();osc.connect(gain);gain.connect(audio.destination);osc.frequency.value=freq;gain.gain.setValueAtTime(.035,audio.currentTime);gain.gain.exponentialRampToValueAtTime(.0001,audio.currentTime+duration);osc.start();osc.stop(audio.currentTime+duration);}catch{}}
+$('sound').onclick=()=>{sound=!sound;$('sound').textContent=sound?'♪ ON':'♪ OFF';tone(550);};
+let toastTimer;function toast(s){$('toast').textContent=s;$('toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('show'),2200);}
+// Bake transformed Blender scenery into a small number of draw calls.
+function prepareScenery(root){root.updateMatrixWorld(true);const groups=new Map();root.traverse(o=>{if(!o.isMesh)return;const n=o.name;const p=new T.Vector3();o.getWorldPosition(p);if(/Coin_|JUMP_Log|Log_cut|Broken_branch|ROLL_Under|Barrier_post|Warning_stripe|Asset_crate/.test(n))return;if(/Asset_Rock/.test(n)&&Math.abs(p.x)<3.5)return;if(/Distant_mountain|Lantern_glow/.test(n))return;let g=o.geometry.clone().applyMatrix4(o.matrixWorld);if(g.index)g=g.toNonIndexed();if(!g.attributes.normal)g.computeVertexNormals();if(!g.attributes.uv)g.setAttribute('uv',new T.BufferAttribute(new Float32Array(g.attributes.position.count*2),2));for(const key of Object.keys(g.attributes))if(!['position','normal','uv'].includes(key))g.deleteAttribute(key);const mat=Array.isArray(o.material)?o.material[0]:o.material;const key=mat.uuid;if(!groups.has(key))groups.set(key,{mat,geos:[]});groups.get(key).geos.push(g);});const result=new T.Group();for(const{mat,geos}of groups.values()){const geo=mergeGeometries(geos,false);if(!geo)continue;const m=new T.Mesh(geo,mat);m.receiveShadow=true;result.add(m);for(const g of geos)g.dispose();}return result;}
+async function chooseBiome(name){chosen=name;environmentReady=false;const token=++loadToken;$('play').disabled=true;$('play').textContent='Preparing your trail…';$('load-status').textContent='Loading '+name+' environment';document.querySelectorAll('[data-biome]').forEach(b=>b.classList.toggle('active',b.dataset.biome===name));try{let proto=cache.get(name);if(!proto){const gltf=await loader.loadAsync('assets/'+name+'_72m.glb');proto=prepareScenery(gltf.scene);cache.set(name,proto);}if(token!==loadToken)return;scenery.clear();tiles=[];for(let i=0;i<3;i++){const tile=proto.clone();tile.userData.start=i*72-12;tile.position.z=-tile.userData.start;scenery.add(tile);tiles.push(tile);}const cave=name==='cave';scene.background.set(cave?'#202a27':'#c4e2d3');scene.fog.color.copy(scene.background);scene.fog.near=cave?25:48;scene.fog.far=cave?95:145;sun.intensity=cave?1.2:3.2;environmentReady=true;updateReady();}catch(e){console.error(e);$('load-status').textContent='Could not load assets. Run START_GAME.command or start the local server.';$('play').textContent='Reload to retry';}}
+document.querySelectorAll('[data-biome]').forEach(b=>b.onclick=()=>chooseBiome(b.dataset.biome));
+const coinTemplate=new T.Group();
+loadCoinTemplate(loader,'assets/GameOn_Coin.glb?logo=2').then(model=>{
+ coinTemplate.add(model);coinReady=true;updateReady();
+}).catch(e=>{console.error('Coin load failed',e);$('load-status').textContent='Could not load the coin model. Start the local server and reload.';});
+const logTemplate=new T.Group();const log=mesh(new T.CylinderGeometry(.42,.42,1.85,9),wood,logTemplate,0,.42,0);log.rotation.z=Math.PI/2;for(const side of[-1,1]){const cap=mesh(new T.CylinderGeometry(.34,.34,.012,9),cut,logTemplate,side*.93,.42,0);cap.rotation.z=Math.PI/2;}box(.15,.38,.16,wood,logTemplate,.25,.83,0).rotation.z=.35;
+const rockTemplate=new T.Group();mesh(new T.DodecahedronGeometry(.83,0),stone,rockTemplate,0,.68,0).scale.set(1,1,.8);
+const barrierTemplate=new T.Group();for(const side of[-1,1])box(.12,2.2,.18,wood,barrierTemplate,side*.91,1.1,0);box(2.05,.55,.24,wood,barrierTemplate,0,1.82,0);for(let i=-3;i<=3;i++){const st=box(.12,.51,.015,stripe,barrierTemplate,i*.27,1.82,.13);st.rotation.z=-.4;}
+const templates={coin:coinTemplate,log:logTemplate,rock:rockTemplate,barrier:barrierTemplate};const pools={coin:[],log:[],rock:[],barrier:[]};
+function addEntity(kind,laneIndex,d){const o=pools[kind].pop()||templates[kind].clone();o.position.set(LANES[laneIndex],kind==='coin'?1.05:0,distance-d);o.visible=true;scene.add(o);entities.push({kind,lane:laneIndex,d,obj:o,checked:false});}
+function release(e){scene.remove(e.obj);pools[e.kind].push(e.obj);}
+function clearEntities(){for(const e of entities)release(e);entities=[];}
+function spawnRow(){const row=Math.round((spawnAt-22)/18);const blocked=row<3?[0,2,1][row]:Math.floor(Math.random()*3);const kind=row<3?['log','rock','barrier'][row]:['log','rock','barrier'][Math.floor(Math.random()*3)];addEntity(kind,blocked,spawnAt);let safe=(blocked+1)%3;if(distance>220&&Math.random()<.35){const b=(blocked+2)%3;addEntity(['rock','log'][Math.floor(Math.random()*2)],b,spawnAt);}for(let j=0;j<6;j++)addEntity('coin',safe,spawnAt-7+j*1.6);spawnAt+=18;}
+function reset(){poseSlideHeld=false;mascot.reset();clearEntities();lane=1;x=height=velocity=slideLeft=distance=coinCount=elapsed=animTime=0;spawnAt=22;body.rotation.set(0,0,0);body.position.set(0,0,0);body.scale.set(1,1,1);for(let i=0;i<tiles.length;i++)tiles[i].userData.start=i*72-12;while(spawnAt<115)spawnRow();updateHUD();}
+function showState(next){state=next;document.dispatchEvent(new CustomEvent('game-state',{detail:next}));}
+function start(){if(!environmentReady||!characterReady||!coinReady)return;reset();showState('playing');tone(440);}
+function gameOver(kind){updateHUD();showState('over');document.dispatchEvent(new CustomEvent('game-over',{detail:{distance:Math.floor(distance),coins:coinCount,score:scoreFor(distance,coinCount),biome:chosen,cause:kind==='barrier'?'Squat to slide under striped barriers.':kind==='rock'?'Step or lean to dodge rocks, or time a high jump.':'Jump over fallen logs.'}}));tone(120,.3);}
+
+function action(a){
+ if(state!=='playing')return;
+ if(a==='left'||a==='right'){
+  const next=clampLane(lane+(a==='left'?-1:1));
+  if(next!==lane){lane=next;if(height<.03&&slideLeft<=0)mascot.trigger(a,.3);tone(230,.035);}
+ }
+ if(a==='jump'&&height<.03){slideLeft=0;velocity=8.4;mascot.trigger('jump',2*8.4/19);tone(400,.08);}
+ if(a==='slide'&&height<.03){slideLeft=.9;mascot.trigger('slide',.9);tone(170,.07);}
+}
+document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('pointerdown',e=>{e.preventDefault();action(b.dataset.action);}));let touchStart=null;canvas.addEventListener('pointerdown',e=>{touchStart={x:e.clientX,y:e.clientY};});canvas.addEventListener('pointerup',e=>{if(!touchStart)return;const dx=e.clientX-touchStart.x,dy=e.clientY-touchStart.y;touchStart=null;if(Math.max(Math.abs(dx),Math.abs(dy))<22)return;action(Math.abs(dx)>Math.abs(dy)?dx>0?'right':'left':dy>0?'slide':'jump');});canvas.addEventListener('pointercancel',()=>touchStart=null);
+function updateHUD(){$('distance').innerHTML=Math.floor(distance)+'<span>m</span>';$('coins').textContent=coinCount;$('score').textContent=scoreFor(distance,coinCount);}
+let poseSlideHeld=false;
+let last=performance.now(),hudTimer=0;function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/1000,.04);last=now;const running=state==='playing';if(running){elapsed+=dt;const speed=speedAt(distance);const advance=speed*dt;distance+=advance;x=T.MathUtils.damp(x,LANES[lane],17,dt);if(height>0||velocity>0){height+=velocity*dt;velocity-=19*dt;if(height<0){height=0;velocity=0;}}slideLeft=Math.max(poseSlideHeld&&height<.03?.12:0,slideLeft-dt);while(spawnAt<distance+115)spawnRow();for(let i=entities.length-1;i>=0;i--){const e=entities[i];const prev=e.obj.position.z;e.obj.position.z=distance-e.d;if(e.kind==='coin'){e.obj.rotation.y+=dt*2;const same=Math.abs(x-LANES[e.lane])<.7;if(same&&Math.abs(height+(slideLeft>0?.5:1)-1.05)<.9&&crossed(prev,e.obj.position.z,.65)){coinCount++;tone(880+coinCount%4*110,.065);release(e);entities.splice(i,1);continue;}}else if(!e.checked&&crossed(prev,e.obj.position.z,.48)&&Math.abs(x-LANES[e.lane])<.77){e.checked=true;if(hitObstacle(e.kind,height,slideLeft>0)&&!invincible){gameOver(e.kind);break;}}if(e.obj.position.z>9){release(e);entities.splice(i,1);}}hudTimer+=dt;if(hudTimer>.09){updateHUD();hudTimer=0;}}
+for(const tile of tiles){if(tile.userData.start+72<distance-12)tile.userData.start+=216;tile.position.z=distance-tile.userData.start;}
+body.position.y=height;
+mascot.update(dt,state,speedAt(distance),height>0||velocity>0,slideLeft>0,poseSlideHeld);
+player.position.x=x;shadow.position.x=x;shadow.scale.setScalar(Math.max(.45,1-height*.18));shadow.material.opacity=Math.max(.06,.22-height*.06);camera.position.x=T.MathUtils.damp(camera.position.x,x*.15,3,dt);camera.lookAt(x*.12,1,-13);renderer.render(scene,camera);}
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();if(state==='playing')showState('paused');toast('Graphics paused. Reload the page to restore the game.');});
+chooseBiome('forest');requestAnimationFrame(frame);
+
+export const game={
+ get ready(){return environmentReady&&characterReady&&coinReady;},get state(){return state;},
+ start,action,
+ setLane(target){if(state!=='playing')return;const next=clampLane(target);if(next===lane)return;const direction=next<lane?'left':'right';lane=next;if(height<.03&&slideLeft<=0)mascot.trigger(direction,.3);},
+ setSquat(active){poseSlideHeld=active;},
+ pause(){if(state==='playing')showState('paused');},
+ resume(){if(state==='paused')showState('playing');},
+ home(){reset();clearEntities();player.position.set(0,0,0);showState('menu');}
+};

@@ -1,0 +1,14 @@
+import test from 'node:test';import assert from 'node:assert/strict';import path from 'node:path';import {fileURLToPath} from 'node:url';import {createApp} from '../src/app.js';import {MemoryScoreStore,validateScore} from '../src/scores.js';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
+const run={name:'Trail Tester',email:'Runner@Example.com ',distance:100,coins:4,biome:'forest'};
+test('normalizes email and derives score; rejects invalid input',()=>{assert.equal(validateScore(run).email,'runner@example.com');assert.equal(validateScore(run).score,200);for(const body of [{...run,email:'x'},{...run,distance:-1},{...run,name:'<script>'},{...run,score:999},{...run,coins:10000},{...run,biome:'unknown'}])assert.throws(()=>validateScore(body));});
+test('score API retains one best score per email and never returns email publicly',async t=>{
+ const store=new MemoryScoreStore();const app=createApp({getStore:()=>store,clientDir:path.join(root,'client'),rateLimits:false});const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(()=>server.close());const base='http://127.0.0.1:'+server.address().port;
+ const post=body=>fetch(base+'/api/scores',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ assert.equal((await post(run)).status,200);await post({...run,email:'runner@example.com',distance:50,coins:1});let data=await (await fetch(base+'/api/leaderboard')).json();assert.equal(data.scores.length,1);assert.equal(data.scores[0].score,200);assert.ok(!JSON.stringify(data).includes('example.com'));
+ await Promise.all([post({...run,distance:250}),post({...run,distance:350})]);data=await (await fetch(base+'/api/leaderboard')).json();assert.equal(data.scores.length,1);assert.equal(data.scores[0].score,450);
+ assert.equal((await post({...run,email:'bad'})).status,400);assert.equal((await post({...run,video:'not permitted'})).status,400);
+ assert.equal((await fetch(base+'/server/.env')).status,404);assert.equal((await fetch(base+'/.env')).status,404);
+ const cross=await fetch(base+'/api/scores',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://other.example'},body:JSON.stringify(run)});assert.equal(cross.status,403);
+});
+test('database outage is explicit rather than claiming a save',async t=>{const app=createApp({getStore:()=>null,clientDir:path.join(root,'client'),rateLimits:false});const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(()=>server.close());const base='http://127.0.0.1:'+server.address().port;assert.equal((await fetch(base+'/api/leaderboard')).status,503);assert.equal((await fetch(base+'/api/scores',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(run)})).status,503);});
