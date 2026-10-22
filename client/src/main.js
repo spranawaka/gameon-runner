@@ -2,20 +2,21 @@ import {game} from './game.js';
 import {PoseMotion} from './pose-motion.js';
 import {CameraControls} from './camera.js';
 const $=id=>document.getElementById(id);
-const screens=['menu','setup','countdown','paused','over'];
-let flow='menu',mode='camera',pendingRun=null,saving=false,countTimer=null,lastPose=0,lostSince=0,countRemaining=5,countLast=0,requestToken=0;
+const screens=['menu','setup','countdown','paused','revive','over'];
+let flow='menu',mode='camera',pendingRun=null,saving=false,countTimer=null,lastPose=0,lostSince=0,countRemaining=5,countLast=0,requestToken=0,reviveTimer=null;
+const REVIVE_SECONDS=6;
 const motion=new PoseMotion();
 function display(next){
  flow=next;document.body.dataset.screen=next;for(const id of screens)$(id).hidden=id!==next;
  $('hud').hidden=!['playing'].includes(next);$('pause').hidden=next!=='playing';
  $('touch-controls').hidden=next!=='playing'||mode!=='keyboard';$('footer').hidden=next!=='menu';
- $('camera-panel').hidden=mode!=='camera'||!['setup','countdown','playing','paused'].includes(next);
+ $('camera-panel').hidden=mode!=='camera'||!['setup','countdown','playing','paused','revive'].includes(next);
 }
 function setStatus(text){$('setup-status').textContent=text;}
 function updateReady(){if(flow==='menu'){$('play').disabled=!game.ready;$('play').textContent=game.ready?'START ▶':'Preparing your trail…';if(game.ready)$('load-status').textContent=mode==='camera'?'Webcam controls · no login needed':'Keyboard controls · no login needed';}}
 function setMode(next){mode=next;for(const name of ['camera','keyboard']){$('mode-'+name).classList.toggle('active',name===mode);$('mode-'+name).setAttribute('aria-pressed',String(name===mode));}updateReady();}
 function stopCount(){clearInterval(countTimer);countTimer=null;}
-function home(){requestToken++;stopCount();camera.stop();motion.reset();pendingRun=null;$('score-form').reset();$('save-status').textContent='';game.setSquat(false);game.home();display('menu');updateReady();}
+function home(){requestToken++;stopCount();stopRevive();camera.stop();motion.reset();pendingRun=null;$('score-form').reset();$('save-status').textContent='';game.setSquat(false);game.home();display('menu');updateReady();}
 function pause(reason='Your next step can wait.') {if(flow!=='playing')return;game.setSquat(false);$('pause-reason').textContent=reason;game.pause();display('paused');}
 function drawPose(points){
  const ctx=$('pose-overlay').getContext('2d'),w=320,h=240;ctx.clearRect(0,0,w,h);if(!points)return;
@@ -40,7 +41,20 @@ function onPose(points,time){
   game.setLane(result.lane);game.setSquat(result.sliding);
   if(result.jump)game.action('jump');if(result.slide)game.action('slide');
  }
+ if(flow==='revive'&&result.jump)continueRun();
 }
+function stopRevive(){clearInterval(reviveTimer);reviveTimer=null;}
+function offerRevive(){
+ stopRevive();display('revive');game.setSquat(false);let left=REVIVE_SECONDS,lastTick=performance.now();
+ $('revive-hint').textContent=mode==='camera'?'Jump or press Continue to keep running.':'Press Space or Continue to keep running.';$('revive-bar').style.width='100%';
+ reviveTimer=setInterval(()=>{const now=performance.now(),dt=Math.min((now-lastTick)/1000,.2);lastTick=now;if(document.hidden)return;left-=dt;$('revive-bar').style.width=Math.max(0,left/REVIVE_SECONDS*100)+'%';if(left<=0)endRevive();},80);
+}
+function continueRun(){
+ if(flow!=='revive')return;
+ if(mode==='camera'&&(!camera.active||performance.now()-lastPose>650)){$('revive-hint').textContent='Stand in view of the webcam to continue.';return;}
+ stopRevive();display('playing');game.revive();
+}
+function endRevive(){if(flow!=='revive')return;stopRevive();game.endRun();}
 const camera=new CameraControls({video:$('camera-video'),onPose,onStatus:setStatus,onLost:trackingLost});
 async function start(){
  if(!game.ready||flow!=='menu')return;
@@ -52,14 +66,14 @@ async function start(){
 }
 function beginCountdown(){
  if(!['menu','setup'].includes(flow))return;
- stopCount();display('countdown');countRemaining=5;countLast=performance.now();$('countdown-number').textContent='5';$('countdown-hint').textContent='Get ready to move';
+ stopCount();display('countdown');countRemaining=5;countLast=performance.now();$('countdown-number').textContent='5';game.sfx('count');$('countdown-hint').textContent='Get ready to move';
  countTimer=setInterval(()=>{
   const now=performance.now(),dt=Math.min((now-countLast)/1000,.2);countLast=now;
   if(document.hidden)return;
   if(mode==='camera'&&(!camera.active||now-lastPose>650)){$('countdown-hint').textContent='Step back into view to continue';return;}
   $('countdown-hint').textContent='Get ready to move';countRemaining-=dt;
-  if(countRemaining>0){$('countdown-number').textContent=String(Math.ceil(countRemaining));return;}
-  stopCount();$('countdown-number').textContent='GO!';$('countdown-hint').textContent='Enjoy your run';
+  if(countRemaining>0){const n=String(Math.ceil(countRemaining));if($('countdown-number').textContent!==n){$('countdown-number').textContent=n;game.sfx('count');}return;}
+  stopCount();$('countdown-number').textContent='GO!';game.sfx('go');$('countdown-hint').textContent='Enjoy your run';
   const token=requestToken;setTimeout(()=>{if(token!==requestToken||flow!=='countdown')return;if(mode==='camera'&&performance.now()-lastPose>650){flow='setup';beginCountdown();return;}game.start();display('playing');},450);
  },80);
 }
@@ -90,20 +104,23 @@ $('pause').onclick=()=>pause();$('resume').onclick=()=>{
  if(mode==='camera'&&(!camera.active||performance.now()-lastPose>650)){$('pause-reason').textContent='Stand in view of the webcam before continuing.';return;}
  game.resume();display('playing');
 };
+$('revive-continue').onclick=continueRun;$('revive-end').onclick=endRevive;
 document.querySelectorAll('.home').forEach(b=>b.onclick=home);
 document.querySelector('.brand').onclick=e=>{e.preventDefault();if(!saving)home();};
 const keys={ArrowLeft:'left',KeyA:'left',ArrowRight:'right',KeyD:'right',ArrowUp:'jump',KeyW:'jump',Space:'jump',ArrowDown:'slide',KeyS:'slide'};
 addEventListener('keydown',e=>{
  if(['INPUT','TEXTAREA'].includes(document.activeElement?.tagName))return;
  if(e.code==='Escape'||e.code==='KeyP'){
-  if(e.repeat)return;e.preventDefault();if(flow==='playing')pause();else if(flow==='paused')$('resume').click();else if(['setup','countdown'].includes(flow))home();return;
+  if(e.repeat)return;e.preventDefault();if(flow==='playing')pause();else if(flow==='paused')$('resume').click();else if(flow==='revive')endRevive();else if(['setup','countdown'].includes(flow))home();return;
  }
+ if(flow==='revive'&&['Space','Enter','ArrowUp','KeyW'].includes(e.code)){e.preventDefault();if(!e.repeat)continueRun();return;}
  if(flow==='playing'&&mode==='keyboard'&&keys[e.code]){e.preventDefault();if(!e.repeat)game.action(keys[e.code]);}
 });
 document.addEventListener('game-ready',updateReady);
+document.addEventListener('game-revive',offerRevive);
 document.addEventListener('game-state',e=>{if(e.detail==='paused'&&flow==='playing')display('paused');});
 document.addEventListener('game-over',e=>{
- requestToken++;stopCount();camera.stop();game.setSquat(false);pendingRun=Object.freeze({...e.detail});
+ requestToken++;stopCount();stopRevive();camera.stop();game.setSquat(false);pendingRun=Object.freeze({...e.detail});
  $('final-score').textContent=pendingRun.score.toLocaleString();$('final-distance').textContent=pendingRun.distance.toLocaleString();$('final-coins').textContent=pendingRun.coins.toLocaleString();$('cause').textContent=pendingRun.cause;$('score-form').reset();$('save-status').textContent='';display('over');
 });
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&flow==='playing')pause('The tab was hidden. Continue when you are ready.');});
