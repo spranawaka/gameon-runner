@@ -1,0 +1,10 @@
+{
+ "length": 2426.0,
+ "chunk": 120.0,
+ "roadHalfWidth": 9.0,
+ "buildings": 614,
+ "from": "Galle Face roundabout",
+ "to": "Morven Hotel, 213 Galle Rd, Colombo 03",
+ "source": "mapbox.mapbox-streets-v8",
+ "fetched": "2026-11-23T09:31:03.426Z"
+}
