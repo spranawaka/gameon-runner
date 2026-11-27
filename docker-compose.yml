@@ -1,0 +1,19 @@
+services:
+  gameon-runner:
+    build: .
+    image: gameon-runner-v2:latest
+    container_name: gameon-runner-v2
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Must be 0.0.0.0 inside the container, whatever .env says.
+      HOST: 0.0.0.0
+      PORT: 3000
+    ports:
+      - "${APP_PORT:-8091}:3000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
