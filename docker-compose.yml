@@ -1,8 +1,8 @@
 services:
   gameon-runner:
     build: .
-    image: gameon-runner:latest
-    container_name: gameon-runner
+    image: gameon-runner-v2:latest
+    container_name: gameon-runner-v2
     restart: unless-stopped
     env_file:
       - .env
