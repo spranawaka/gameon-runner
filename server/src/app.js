@@ -4,7 +4,7 @@ import {rateLimit} from 'express-rate-limit';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {validateScore} from './scores.js';
-export function createApp({getStore,clientDir,rateLimits=true}) {
+export function createApp({getStore,clientDir,rateLimits=true,mailer=null}) {
  const app=express();app.disable('x-powered-by');
  const importMap=readFileSync(clientDir+'/index.html','utf8').match(/<script type="importmap">([\s\S]*?)<\/script>/)?.[1]||'';
  const importMapHash="'sha256-"+createHash('sha256').update(importMap).digest('base64')+"'";
@@ -24,7 +24,10 @@ export function createApp({getStore,clientDir,rateLimits=true}) {
   if(origin){try{if(new URL(origin).host!==req.get('host'))return res.status(403).json({error:'Save scores from the game page.'});}catch{return res.status(403).json({error:'Invalid origin.'});}}
   let run;try{run=validateScore(req.body);}catch(e){return res.status(400).json({error:e.message});}
   const store=getStore();if(!store)return res.status(503).json({error:'Scores cannot be saved right now. Retry or skip.'});
-  try{res.json({saved:true,...await store.save(run)});}catch{res.status(503).json({error:'Could not save the score. Please retry or skip.'});}
+  let result;try{result=await store.save(run);}catch{return res.status(503).json({error:'Could not save the score. Please retry or skip.'});}
+  res.json({saved:true,...result,emailed:!!mailer});
+  // Email runs after the response so a slow mail server never delays the game.
+  if(mailer)mailer.sendRun(run,result.bestScore).catch(e=>console.error('Email to player failed:',e.message));
  });
  app.use('/api',(req,res)=>res.status(404).json({error:'Endpoint not found.'}));
  // Only client/ is public. server/.env and database credentials cannot be served.

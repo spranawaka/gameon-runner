@@ -37,7 +37,7 @@ function setStatus(text){$('setup-status').textContent=text;}
 function updateReady(){if(flow==='menu'){$('play').disabled=!game.ready;$('play').textContent=game.ready?'START ▶':'Preparing your trail…';if(game.ready)$('load-status').textContent=mode==='camera'?'Webcam controls · no login needed':'Keyboard controls · no login needed';}}
 function setMode(next){mode=next;for(const name of ['camera','keyboard']){$('mode-'+name).classList.toggle('active',name===mode);$('mode-'+name).setAttribute('aria-pressed',String(name===mode));}updateReady();}
 function stopCount(){clearInterval(countTimer);countTimer=null;}
-function home(){requestToken++;stopCount();stopRevive();stopPromo();clearTimeout(congratsTimer);camera.stop();motion.reset();pendingRun=null;$('score-form').reset();$('save-status').textContent='';game.setSquat(false);game.home();display('menu');updateReady();}
+function home(){if(passTimer)stopPassTimer();requestToken++;stopCount();stopRevive();stopPromo();clearTimeout(congratsTimer);camera.stop();motion.reset();pendingRun=null;$('score-form').reset();$('save-status').textContent='';game.setSquat(false);game.home();display('menu');updateReady();}
 function pause(reason='Your next step can wait.') {if(flow!=='playing')return;game.setSquat(false);$('pause-reason').textContent=reason;game.pause();display('paused');}
 function drawPose(points){
  const ctx=$('pose-overlay').getContext('2d'),w=320,h=240;ctx.clearRect(0,0,w,h);if(!points)return;
@@ -113,7 +113,7 @@ $('score-form').addEventListener('submit',async event=>{
   const res=await fetch('/api/scores',{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(12000),body:JSON.stringify({name:$('player-name').value,email:$('player-email').value,distance:pendingRun.distance,coins:pendingRun.coins,biome:pendingRun.biome,lion:pendingRun.lion===true})});
   const data=await res.json();if(!res.ok)throw new Error(data.error||'Could not save. Please retry.');
   const winner={name:$('player-name').value.trim().replace(/\s+/g,' '),email:$('player-email').value.trim().toLowerCase()};savedBest=data.bestScore;
-  if(pendingRun.lion===true){await showPass(winner);loadLeaderboard();}
+  if(pendingRun.lion===true){await showPass(winner,data.emailed===true);loadLeaderboard();}
   else{home();await loadLeaderboard();$('load-status').textContent='Score saved · your best: '+data.bestScore.toLocaleString();}
  }catch(e){$('save-status').textContent=e.name==='TimeoutError'?'Save timed out. Please retry or skip.':e.message||'Could not save. Please retry or skip.';}
  finally{saving=false;$('save-score').disabled=false;$('skip-score').disabled=false;$('save-score').textContent='SAVE SCORE ▶';}
@@ -123,7 +123,9 @@ $('skip-score').onclick=()=>{if(!saving)home();};
 // Free beer pass: after a run with a collected can is saved, show the pass with the winner's name and email
 // written into the boxes of gift-card-download.webp, ready to download as an image.
 const PASS_IMG='assets/colombo/gift-card-download.webp',PASS_BOX={x:100,w:741,name:770,email:994}; // box centres on the 941x1672 card
-let savedBest=0,passUrl=null,passName='';
+let savedBest=0,passUrl=null,passName='',passTimer=null;
+const PASS_SECONDS=5; // the pass screen returns home by itself after this many seconds
+function stopPassTimer(){clearInterval(passTimer);passTimer=null;$('pass-home').textContent='BACK TO HOME';}
 function loadImage(src){return new Promise((ok,bad)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=bad;i.src=src;});}
 function fitText(g,text,font,size,max){let s=size;do{g.font=font(s);s-=2;}while(g.measureText(text).width>max&&s>14);}
 async function makePass({name,email}){
@@ -134,13 +136,18 @@ async function makePass({name,email}){
  fitText(g,email,s=>`700 ${s}px Arial, Helvetica, sans-serif`,42*k,PASS_BOX.w*k);g.fillText(email,cx,PASS_BOX.email*k);
  return new Promise(r=>c.toBlob(r,'image/jpeg',.92));
 }
-async function showPass(winner){
- try{const blob=await makePass(winner);if(passUrl)URL.revokeObjectURL(passUrl);passUrl=URL.createObjectURL(blob);passName=winner.name;$('pass-preview').src=passUrl;display('pass');}
+async function showPass(winner,emailed=false){
+ // Email configured on the server: tell the player the pass is in their inbox (no download button).
+ // Otherwise fall back to the download button.
+ $('pass-emailed').hidden=!emailed;$('pass-download').hidden=emailed;$('pass-email-to').textContent=emailed?'Sent to '+winner.email:'';
+ try{const blob=await makePass(winner);if(passUrl)URL.revokeObjectURL(passUrl);passUrl=URL.createObjectURL(blob);passName=winner.name;$('pass-preview').src=passUrl;display('pass');
+  let left=PASS_SECONDS;$('pass-home').textContent=`BACK TO HOME (${left})`;clearInterval(passTimer);
+  passTimer=setInterval(()=>{left--;if(left<=0){$('pass-home').click();return;}$('pass-home').textContent=`BACK TO HOME (${left})`;},1000);}
  catch(e){console.error('beer pass',e);home();$('load-status').textContent='Score saved · your best: '+savedBest.toLocaleString();}
 }
 function downloadPass(){if(!passUrl)return;const a=document.createElement('a');a.href=passUrl;a.download='PortCityRun-Beer-Pass-'+(passName.replace(/[^\w-]+/g,'-').replace(/^-+|-+$/g,'')||'winner')+'.jpg';document.body.append(a);a.click();a.remove();}
 $('pass-download').onclick=downloadPass;
-$('pass-home').onclick=async()=>{home();await loadLeaderboard();$('load-status').textContent='Score saved · your best: '+savedBest.toLocaleString();};
+$('pass-home').onclick=async()=>{stopPassTimer();if(flow!=='pass')return;home();await loadLeaderboard();$('load-status').textContent='Score saved · your best: '+savedBest.toLocaleString();};
 $('refresh-board').onclick=loadLeaderboard;$('play').onclick=start;
 $('mode-camera').onclick=()=>setMode('camera');$('mode-keyboard').onclick=()=>setMode('keyboard');
 $('setup-keyboard').onclick=()=>{requestToken++;camera.stop();motion.reset();setMode('keyboard');display('menu');beginCountdown();};

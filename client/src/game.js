@@ -96,7 +96,7 @@ function placeRoots(roots,period){scenery.clear();tiles=roots;tileLength=period;
 function placeTiles(proto,length,count,start){scenery.clear();tiles=[];tileLength=length;tileStart=start;for(let i=0;i<count;i++){const tile=i?proto.clone():proto;tile.userData.start=start+i*length;tile.position.z=-tile.userData.start;scenery.add(tile);tiles.push(tile);}}
 async function chooseBiome(name){chosen=name;environmentReady=false;const token=++loadToken;$('play').disabled=true;$('play').textContent='Preparing your trail…';$('load-status').textContent='Loading '+name+' environment';document.querySelectorAll('[data-biome]').forEach(b=>{b.classList.toggle('active',b.dataset.biome===name);b.setAttribute('aria-pressed',String(b.dataset.biome===name));});try{const city=CITY[name];
  if(city){await loadColomboProps();const first=await loadCityTrack(city,0);if(token!==loadToken)return;
-  const roots=[new T.Group()];roots[0].add(first);placeRoots(roots,city.period);loadGameEnd(roots[0]);loadGantries(roots[0]);
+  const roots=[new T.Group()];roots[0].add(first);placeRoots(roots,city.period);loadGameEnd(roots[0]);loadGantries(roots[0]);addDisco(roots[0]);
   (async()=>{for(let i=1;i<city.tracks.length;i++){try{const t=await loadCityTrack(city,i);if(token!==loadToken)return;roots[0].add(t);}catch(e){console.error('Colombo track '+(i+1)+' failed',e);}}})();}
  else{let proto=cache.get(name);if(!proto){const gltf=await loader.loadAsync('assets/'+name+'_72m.glb');proto=prepareScenery(gltf.scene);cache.set(name,proto);}if(token!==loadToken)return;placeTiles(proto,72,3,-12);}const cave=name==='cave';scene.background.set(city?city.sky:cave?'#202a27':'#c4e2d3');scene.fog.color.copy(scene.background);scene.fog.near=city?city.fogNear:cave?25:48;scene.fog.far=city?city.fogFar:cave?95:145;sun.intensity=cave?1.2:3.2;hemi.groundColor.set(city?'#8a8f94':'#677d3a');environmentReady=true;snapshotLook();applyLook();updateReady();}catch(e){console.error(e);$('load-status').textContent='Could not load assets. Run START_GAME.command or start the local server.';$('play').textContent='Reload to retry';}}
 document.querySelectorAll('[data-biome]').forEach(b=>b.onclick=()=>chooseBiome(b.dataset.biome));
@@ -249,8 +249,14 @@ for(const tile of tiles){if(tile.userData.start+tileLength<distance-12)tile.user
 body.position.y=height;
 if(chosen==='colombo')scenery.traverseVisible(o=>cityMixers.get(o)?.update(dt));
 mascot.update(dt,state==='revive'?'paused':state,speedAt(distance),height-ground>.03||velocity>0,slideLeft>0,poseSlideHeld);
-player.position.x=x;shadow.position.x=x;shadow.position.y=ground+.015;const air=height-ground;shadow.scale.setScalar(Math.max(.45,1-air*.18));shadow.material.opacity=Math.max(.06,.22-air*.06);camLift=T.MathUtils.damp(camLift,air<.05?ground:Math.min(camLift,height),4,dt);camera.position.x=T.MathUtils.damp(camera.position.x,x*.15,3,dt);camera.position.y=4.3+camLift;camera.lookAt(x*.12,1+camLift,-13);renderer.render(scene,camera);}
-addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+player.position.x=x;shadow.position.x=x;shadow.position.y=ground+.015;const air=height-ground;shadow.scale.setScalar(Math.max(.45,1-air*.18));shadow.material.opacity=Math.max(.06,.22-air*.06);camLift=T.MathUtils.damp(camLift,air<.05?ground:Math.min(camLift,height),4,dt);camera.position.x=T.MathUtils.damp(camera.position.x,x*CAM.follow,4,dt);camera.position.y=CAM.y+camLift;camera.position.z=CAM.z;camera.lookAt(x*CAM.look,1+camLift,-13);updateDisco(dt);renderer.render(scene,camera);}
+// Portrait phones: pull the camera back a little, widen the view and follow the runner sideways more,
+// so the mascot stays on screen in the side lanes. Landscape/desktop keeps the original framing.
+const CAM={follow:.15,look:.12,y:4.3,z:7.4};
+function fitCamera(){const a=innerWidth/innerHeight,p=T.MathUtils.clamp((1-a)/.5,0,1);
+ CAM.follow=.15+.6*p;CAM.look=.12+.55*p;CAM.y=4.3+.9*p;CAM.z=7.4+2.6*p;camera.fov=57+9*p;camera.aspect=a;camera.updateProjectionMatrix();}
+fitCamera();
+addEventListener('resize',()=>{fitCamera();renderer.setSize(innerWidth,innerHeight);});
 canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();if(state==='playing')showState('paused');toast('Graphics paused. Reload the page to restore the game.');});
 // Map select is hidden in index.html, so the game always starts on Colombo.
 // To use the map select again: un-comment it in index.html and change 'colombo' back to 'forest'.
@@ -258,7 +264,28 @@ chooseBiome('colombo');requestAnimationFrame(frame);
 
 // "Dark" look (toggle button, bottom left): a moody, GTA-like daytime grade - lower exposure, warm low sun with
 // deep shadows, hazy blue-grey sky. Not night. The normal look is whatever the chosen map set up.
-const DARK_LOOK={exposure:1.0,sky:'#a7bccc',fog:'#aab5bb',fogNear:75,fogFar:360,hemiSky:'#a9bbd2',hemiGround:'#4b5057',hemi:1.0,sun:'#ffe0b5',sunI:3.9,sunPos:[-17,16,7],filter:'contrast(1.12) saturate(1.1) brightness(.97)'};
+// Sun comes from the sea side so the city-side buildings (Parliament etc.) face the light; a soft fill keeps facades readable.
+const DARK_LOOK={exposure:1.05,sky:'#a7bccc',fog:'#aab5bb',fogNear:75,fogFar:360,hemiSky:'#b4c4d8',hemiGround:'#5a5f66',hemi:1.45,sun:'#ffe0b5',sunI:3.6,sunPos:[15,17,7],fill:1.1,filter:'contrast(1.1) saturate(1.1)'};
+const fillLight=new T.DirectionalLight('#cfe0ff',0);fillLight.position.set(-20,10,-6);scene.add(fillLight); // lights the sea-facing side too
+// Party spotlights sweeping over the Old Parliament facade (dark look only, Colombo map).
+const DISCO={colors:['#ff3fd8','#29e6ff','#ffb21f','#8cff3a'],routes:[10,30,50,70],x:-19,facadeX:-50,angle:.2,intensity:2600};
+let disco=null,discoT=0;
+function addDisco(root){
+ const g=new T.Group();g.name='parliament disco lights';const lights=[];
+ const coneGeo=new T.ConeGeometry(1,1,24,1,true);coneGeo.translate(0,-.5,0);
+ DISCO.colors.forEach((c,i)=>{
+  const s=new T.SpotLight(c,DISCO.intensity,0,DISCO.angle,.55,2);s.position.set(DISCO.x,.6,-DISCO.routes[i]);s.castShadow=false;
+  const tgt=new T.Object3D();g.add(s,tgt);s.target=tgt;
+  const beam=new T.Mesh(coneGeo,new T.MeshBasicMaterial({color:c,transparent:true,opacity:.16,blending:T.AdditiveBlending,depthWrite:false,side:T.DoubleSide,fog:false}));beam.position.copy(s.position);beam.renderOrder=3;g.add(beam);
+  const lamp=new T.Mesh(new T.CylinderGeometry(.35,.45,.6,12),new T.MeshStandardMaterial({color:'#20242a',emissive:c,emissiveIntensity:.6}));lamp.position.set(DISCO.x,.3,-DISCO.routes[i]);g.add(lamp);
+  lights.push({s,tgt,beam,base:DISCO.routes[i],phase:i*1.7});});
+ root.add(g);disco={g,lights};g.visible=look==='dark';updateDisco(0);}
+const _dir=new T.Vector3(),_down=new T.Vector3(0,-1,0);
+function updateDisco(dt){if(!disco||!disco.g.visible)return;discoT+=dt;
+ for(const L of disco.lights){const t=discoT*.9+L.phase;
+  L.tgt.position.set(DISCO.facadeX,8+Math.sin(t*1.6)*4.5,-(L.base+Math.sin(t)*13));
+  _dir.subVectors(L.tgt.position,L.s.position);const len=_dir.length();_dir.normalize();
+  L.beam.quaternion.setFromUnitVectors(_down,_dir);const r=Math.tan(DISCO.angle)*len;L.beam.scale.set(r,len,r);}}
 let look='normal',baseLook=null;
 // Fixed values from the scene setup (never changed by maps) + per-map values captured after each map loads.
 const INIT_LOOK={exposure:renderer.toneMappingExposure,hemiSky:hemi.color.clone(),hemi:hemi.intensity,sun:sun.color.clone(),sunPos:sun.position.clone()};
@@ -267,6 +294,7 @@ function applyLook(){if(!baseLook)return;const b=baseLook,d=look==='dark'?DARK_L
  renderer.toneMappingExposure=d?d.exposure:b.exposure;scene.background.set(d?d.sky:b.sky);scene.fog.color.set(d?d.fog:b.fog);scene.fog.near=d?d.fogNear:b.fogNear;scene.fog.far=d?d.fogFar:b.fogFar;
  hemi.color.set(d?d.hemiSky:b.hemiSky);hemi.groundColor.set(d?d.hemiGround:b.hemiGround);hemi.intensity=d?d.hemi:b.hemi;
  sun.color.set(d?d.sun:b.sun);sun.intensity=d?d.sunI:b.sunI;if(d)sun.position.set(...d.sunPos);else sun.position.copy(b.sunPos);
+ fillLight.intensity=d?d.fill:0;if(disco)disco.g.visible=!!d;
  renderer.domElement.style.filter=d?d.filter:'';}
 export const game={
  get ready(){return environmentReady&&characterReady&&coinReady;},get state(){return state;},
