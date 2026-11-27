@@ -3,7 +3,7 @@ import {PoseMotion} from './pose-motion.js';
 import {CameraControls} from './camera.js';
 import {dancer} from './promo-dancer.js';
 const $=id=>document.getElementById(id);
-const screens=['menu','setup','countdown','paused','revive','promo','congrats','over'];
+const screens=['menu','setup','countdown','paused','revive','promo','congrats','over','pass'];
 let flow='menu',mode='camera',pendingRun=null,saving=false,countTimer=null,lastPose=0,lostSince=0,countRemaining=5,countLast=0,requestToken=0,reviveTimer=null;
 const REVIVE_SECONDS=6;
 // Sponsor popup shown after a Lion Strong can is collected: the run holds for PROMO_SECONDS, then continues.
@@ -24,9 +24,15 @@ const motion=new PoseMotion();
 function display(next){
  flow=next;document.body.dataset.screen=next;for(const id of screens)$(id).hidden=id!==next;
  $('hud').hidden=!['playing'].includes(next);$('pause').hidden=next!=='playing';
- $('touch-controls').hidden=next!=='playing'||mode!=='keyboard';$('footer').hidden=next!=='menu';
+ if($('touch-controls'))$('touch-controls').hidden=next!=='playing'||mode!=='keyboard';$('footer').hidden=next!=='menu';
  $('camera-panel').hidden=mode!=='camera'||!['setup','countdown','playing','paused','revive'].includes(next);
+ alignLogo();
 }
+// Desktop menu: centre the logo above the leaderboard panel (other screens / phones use the CSS position).
+function alignLogo(){const brand=document.querySelector('.brand'),lb=document.querySelector('.leaderboard'),hd=document.querySelector('header');if(!brand||!lb||!hd)return;
+ if(innerWidth<761||flow!=='menu'){brand.style.marginLeft='';return;}
+ requestAnimationFrame(()=>{const r=lb.getBoundingClientRect(),h=hd.getBoundingClientRect();if(!r.width)return;brand.style.marginLeft=Math.max(0,r.left+r.width/2-brand.offsetWidth/2-h.left)+'px';});}
+addEventListener('resize',alignLogo);document.querySelector('.brand-logo')?.addEventListener('load',alignLogo);document.fonts?.ready.then(alignLogo);
 function setStatus(text){$('setup-status').textContent=text;}
 function updateReady(){if(flow==='menu'){$('play').disabled=!game.ready;$('play').textContent=game.ready?'START ▶':'Preparing your trail…';if(game.ready)$('load-status').textContent=mode==='camera'?'Webcam controls · no login needed':'Keyboard controls · no login needed';}}
 function setMode(next){mode=next;for(const name of ['camera','keyboard']){$('mode-'+name).classList.toggle('active',name===mode);$('mode-'+name).setAttribute('aria-pressed',String(name===mode));}updateReady();}
@@ -106,12 +112,35 @@ $('score-form').addEventListener('submit',async event=>{
  try{
   const res=await fetch('/api/scores',{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(12000),body:JSON.stringify({name:$('player-name').value,email:$('player-email').value,distance:pendingRun.distance,coins:pendingRun.coins,biome:pendingRun.biome,lion:pendingRun.lion===true})});
   const data=await res.json();if(!res.ok)throw new Error(data.error||'Could not save. Please retry.');
-  home();await loadLeaderboard();$('load-status').textContent='Score saved · your best: '+data.bestScore.toLocaleString();
+  const winner={name:$('player-name').value.trim().replace(/\s+/g,' '),email:$('player-email').value.trim().toLowerCase()};savedBest=data.bestScore;
+  if(pendingRun.lion===true){await showPass(winner);loadLeaderboard();}
+  else{home();await loadLeaderboard();$('load-status').textContent='Score saved · your best: '+data.bestScore.toLocaleString();}
  }catch(e){$('save-status').textContent=e.name==='TimeoutError'?'Save timed out. Please retry or skip.':e.message||'Could not save. Please retry or skip.';}
  finally{saving=false;$('save-score').disabled=false;$('skip-score').disabled=false;$('save-score').textContent='SAVE SCORE ▶';}
 });
 // No fetch, beacon, cookie or storage write runs on Skip.
 $('skip-score').onclick=()=>{if(!saving)home();};
+// Free beer pass: after a run with a collected can is saved, show the pass with the winner's name and email
+// written into the boxes of gift-card-download.webp, ready to download as an image.
+const PASS_IMG='assets/colombo/gift-card-download.webp',PASS_BOX={x:100,w:741,name:770,email:994}; // box centres on the 941x1672 card
+let savedBest=0,passUrl=null,passName='';
+function loadImage(src){return new Promise((ok,bad)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=bad;i.src=src;});}
+function fitText(g,text,font,size,max){let s=size;do{g.font=font(s);s-=2;}while(g.measureText(text).width>max&&s>14);}
+async function makePass({name,email}){
+ const img=await loadImage(PASS_IMG);try{await document.fonts.load('48px Supercell');}catch{}
+ const c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;const g=c.getContext('2d');g.drawImage(img,0,0);
+ const k=c.width/941,cx=c.width/2;g.textAlign='center';g.textBaseline='middle';g.fillStyle='#0b2a7a';
+ fitText(g,name,s=>`${s}px Supercell, "Arial Black", Arial, sans-serif`,62*k,PASS_BOX.w*k);g.fillText(name,cx,PASS_BOX.name*k+3*k);
+ fitText(g,email,s=>`700 ${s}px Arial, Helvetica, sans-serif`,42*k,PASS_BOX.w*k);g.fillText(email,cx,PASS_BOX.email*k);
+ return new Promise(r=>c.toBlob(r,'image/jpeg',.92));
+}
+async function showPass(winner){
+ try{const blob=await makePass(winner);if(passUrl)URL.revokeObjectURL(passUrl);passUrl=URL.createObjectURL(blob);passName=winner.name;$('pass-preview').src=passUrl;display('pass');}
+ catch(e){console.error('beer pass',e);home();$('load-status').textContent='Score saved · your best: '+savedBest.toLocaleString();}
+}
+function downloadPass(){if(!passUrl)return;const a=document.createElement('a');a.href=passUrl;a.download='PortCityRun-Beer-Pass-'+(passName.replace(/[^\w-]+/g,'-').replace(/^-+|-+$/g,'')||'winner')+'.jpg';document.body.append(a);a.click();a.remove();}
+$('pass-download').onclick=downloadPass;
+$('pass-home').onclick=async()=>{home();await loadLeaderboard();$('load-status').textContent='Score saved · your best: '+savedBest.toLocaleString();};
 $('refresh-board').onclick=loadLeaderboard;$('play').onclick=start;
 $('mode-camera').onclick=()=>setMode('camera');$('mode-keyboard').onclick=()=>setMode('keyboard');
 $('setup-keyboard').onclick=()=>{requestToken++;camera.stop();motion.reset();setMode('keyboard');display('menu');beginCountdown();};
@@ -148,4 +177,11 @@ $('congrats-next').onclick=showSave;
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&flow==='playing')pause('The tab was hidden. Continue when you are ready.');});
 setInterval(()=>{if(mode==='camera'&&flow==='playing'&&performance.now()-lastPose>2000)pause('Tracking paused. Stand where your shoulders and hips are visible.');},500);
 addEventListener('pagehide',()=>camera.stop());
+// Lighting look toggle (bottom-left button). Remembered on this device.
+// Dark is the default; the player can switch to normal lighting and that choice is remembered.
+const MOON='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.5 14.6A8.6 8.6 0 0 1 9.4 3.5a.7.7 0 0 0-.9-.8A9.9 9.9 0 1 0 21.3 15.5a.7.7 0 0 0-.8-.9z"/></svg>',
+ SUN='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.6" fill="currentColor"/><path d="M12 1.8v2.4M12 19.8v2.4M1.8 12h2.4M19.8 12h2.4M4.8 4.8l1.7 1.7M17.5 17.5l1.7 1.7M4.8 19.2l1.7-1.7M17.5 6.5l1.7-1.7"/></svg>';
+let darkLook=true;try{darkLook=localStorage.getItem('gameon-look')!=='normal';}catch{}
+function setLook(dark){darkLook=dark;game.setLook(dark?'dark':'normal');$('look-toggle').setAttribute('aria-pressed',String(dark));$('look-toggle').classList.toggle('active',dark);$('look-toggle').innerHTML=dark?MOON:SUN;$('look-toggle').setAttribute('aria-label',dark?'Lighting: dark (switch to normal)':'Lighting: normal (switch to dark)');try{localStorage.setItem('gameon-look',dark?'dark':'normal');}catch{}}
+$('look-toggle').onclick=e=>{setLook(!darkLook);e.currentTarget.blur();};setLook(darkLook);
 display('menu');updateReady();loadLeaderboard();setTimeout(()=>dancer.preload(),4000);

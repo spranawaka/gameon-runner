@@ -98,7 +98,7 @@ async function chooseBiome(name){chosen=name;environmentReady=false;const token=
  if(city){await loadColomboProps();const first=await loadCityTrack(city,0);if(token!==loadToken)return;
   const roots=[new T.Group()];roots[0].add(first);placeRoots(roots,city.period);loadGameEnd(roots[0]);loadGantries(roots[0]);
   (async()=>{for(let i=1;i<city.tracks.length;i++){try{const t=await loadCityTrack(city,i);if(token!==loadToken)return;roots[0].add(t);}catch(e){console.error('Colombo track '+(i+1)+' failed',e);}}})();}
- else{let proto=cache.get(name);if(!proto){const gltf=await loader.loadAsync('assets/'+name+'_72m.glb');proto=prepareScenery(gltf.scene);cache.set(name,proto);}if(token!==loadToken)return;placeTiles(proto,72,3,-12);}const cave=name==='cave';scene.background.set(city?city.sky:cave?'#202a27':'#c4e2d3');scene.fog.color.copy(scene.background);scene.fog.near=city?city.fogNear:cave?25:48;scene.fog.far=city?city.fogFar:cave?95:145;sun.intensity=cave?1.2:3.2;hemi.groundColor.set(city?'#8a8f94':'#677d3a');environmentReady=true;updateReady();}catch(e){console.error(e);$('load-status').textContent='Could not load assets. Run START_GAME.command or start the local server.';$('play').textContent='Reload to retry';}}
+ else{let proto=cache.get(name);if(!proto){const gltf=await loader.loadAsync('assets/'+name+'_72m.glb');proto=prepareScenery(gltf.scene);cache.set(name,proto);}if(token!==loadToken)return;placeTiles(proto,72,3,-12);}const cave=name==='cave';scene.background.set(city?city.sky:cave?'#202a27':'#c4e2d3');scene.fog.color.copy(scene.background);scene.fog.near=city?city.fogNear:cave?25:48;scene.fog.far=city?city.fogFar:cave?95:145;sun.intensity=cave?1.2:3.2;hemi.groundColor.set(city?'#8a8f94':'#677d3a');environmentReady=true;snapshotLook();applyLook();updateReady();}catch(e){console.error(e);$('load-status').textContent='Could not load assets. Run START_GAME.command or start the local server.';$('play').textContent='Reload to retry';}}
 document.querySelectorAll('[data-biome]').forEach(b=>b.onclick=()=>chooseBiome(b.dataset.biome));
 const coinTemplate=new T.Group();
 loadCoinTemplate(loader,'assets/GameOn_Coin.glb?logo=2').then(model=>{
@@ -256,6 +256,18 @@ canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();if(state==='pl
 // To use the map select again: un-comment it in index.html and change 'colombo' back to 'forest'.
 chooseBiome('colombo');requestAnimationFrame(frame);
 
+// "Dark" look (toggle button, bottom left): a moody, GTA-like daytime grade - lower exposure, warm low sun with
+// deep shadows, hazy blue-grey sky. Not night. The normal look is whatever the chosen map set up.
+const DARK_LOOK={exposure:1.0,sky:'#a7bccc',fog:'#aab5bb',fogNear:75,fogFar:360,hemiSky:'#a9bbd2',hemiGround:'#4b5057',hemi:1.0,sun:'#ffe0b5',sunI:3.9,sunPos:[-17,16,7],filter:'contrast(1.12) saturate(1.1) brightness(.97)'};
+let look='normal',baseLook=null;
+// Fixed values from the scene setup (never changed by maps) + per-map values captured after each map loads.
+const INIT_LOOK={exposure:renderer.toneMappingExposure,hemiSky:hemi.color.clone(),hemi:hemi.intensity,sun:sun.color.clone(),sunPos:sun.position.clone()};
+function snapshotLook(){baseLook={...INIT_LOOK,sky:scene.background.clone(),fog:scene.fog.color.clone(),fogNear:scene.fog.near,fogFar:scene.fog.far,hemiGround:hemi.groundColor.clone(),sunI:sun.intensity};}
+function applyLook(){if(!baseLook)return;const b=baseLook,d=look==='dark'?DARK_LOOK:null;
+ renderer.toneMappingExposure=d?d.exposure:b.exposure;scene.background.set(d?d.sky:b.sky);scene.fog.color.set(d?d.fog:b.fog);scene.fog.near=d?d.fogNear:b.fogNear;scene.fog.far=d?d.fogFar:b.fogFar;
+ hemi.color.set(d?d.hemiSky:b.hemiSky);hemi.groundColor.set(d?d.hemiGround:b.hemiGround);hemi.intensity=d?d.hemi:b.hemi;
+ sun.color.set(d?d.sun:b.sun);sun.intensity=d?d.sunI:b.sunI;if(d)sun.position.set(...d.sunPos);else sun.position.copy(b.sunPos);
+ renderer.domElement.style.filter=d?d.filter:'';}
 export const game={
  get ready(){return environmentReady&&characterReady&&coinReady;},get state(){return state;},
  start,action,
@@ -266,5 +278,6 @@ export const game={
  revive,
  sfx:playSfx,
  endRun(){if(state==='revive')finishRun(crashKind);},
+ setLook(next){look=next==='dark'?'dark':'normal';applyLook();},
  home(){reset();clearEntities();player.position.set(0,0,0);showState('menu');}
 };
