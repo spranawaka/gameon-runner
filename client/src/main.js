@@ -95,7 +95,8 @@ function beginCountdown(){
 async function loadLeaderboard(){
  $('refresh-board').disabled=true;$('leaderboard-status').textContent='Loading leaderboard…';
  try{const res=await fetch('/api/leaderboard',{cache:'no-store'});const data=await res.json();if(!res.ok)throw new Error(data.error);$('leaderboard').replaceChildren();
-  for(const row of data.scores){const li=document.createElement('li');for(const [className,text]of[['rank',String(row.rank)],['avatar',row.name.trim().charAt(0).toUpperCase()],['runner',row.name],['points',row.score.toLocaleString()]]){const el=document.createElement('span');el.className=className;el.textContent=text;if(className==='avatar'){el.setAttribute('aria-hidden','true');el.style.setProperty('--avatar-hue',String([...row.name].reduce((n,c)=>n+c.charCodeAt(0),0)%360));}li.append(el);}$('leaderboard').append(li);}
+  for(const row of data.scores){const li=document.createElement('li');for(const [className,text]of[['rank',String(row.rank)],['avatar',row.name.trim().charAt(0).toUpperCase()],['runner',row.name],['points',row.score.toLocaleString()]]){const el=document.createElement('span');el.className=className;el.textContent=text;if(className==='runner'&&row.lion){el.textContent='';const n=document.createElement('span');n.className='runner-name';n.textContent=text;const can=document.createElement('img');can.className='lion-badge';can.src='assets/colombo/apple-beer.webp';can.alt='Beer collected';can.title='Collected a beer';el.append(n,can);}
+   if(className==='avatar'){el.setAttribute('aria-hidden','true');el.style.setProperty('--avatar-hue',String([...row.name].reduce((n,c)=>n+c.charCodeAt(0),0)%360));}li.append(el);}$('leaderboard').append(li);}
   $('leaderboard-status').textContent=data.scores.length?'':'Be the first to leave your mark.';
  }catch(e){$('leaderboard-status').textContent=e.message||'Leaderboard unavailable. You can still play.';}finally{$('refresh-board').disabled=false;}
 }
@@ -103,7 +104,7 @@ $('score-form').addEventListener('submit',async event=>{
  event.preventDefault();if(!pendingRun||saving)return;
  saving=true;$('save-score').disabled=true;$('skip-score').disabled=true;$('save-score').textContent='Saving…';$('save-status').textContent='';
  try{
-  const res=await fetch('/api/scores',{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(12000),body:JSON.stringify({name:$('player-name').value,email:$('player-email').value,distance:pendingRun.distance,coins:pendingRun.coins,biome:pendingRun.biome})});
+  const res=await fetch('/api/scores',{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(12000),body:JSON.stringify({name:$('player-name').value,email:$('player-email').value,distance:pendingRun.distance,coins:pendingRun.coins,biome:pendingRun.biome,lion:pendingRun.lion===true})});
   const data=await res.json();if(!res.ok)throw new Error(data.error||'Could not save. Please retry.');
   home();await loadLeaderboard();$('load-status').textContent='Score saved · your best: '+data.bestScore.toLocaleString();
  }catch(e){$('save-status').textContent=e.name==='TimeoutError'?'Save timed out. Please retry or skip.':e.message||'Could not save. Please retry or skip.';}
@@ -138,6 +139,7 @@ document.addEventListener('game-state',e=>{if(e.detail==='paused'&&flow==='playi
 document.addEventListener('game-over',e=>{
  requestToken++;stopCount();stopRevive();stopPromo();camera.stop();game.setSquat(false);pendingRun=Object.freeze({...e.detail});
  $('final-score').textContent=pendingRun.score.toLocaleString();$('final-distance').textContent=pendingRun.distance.toLocaleString();$('final-coins').textContent=pendingRun.coins.toLocaleString();$('cause').textContent=pendingRun.cause;$('score-form').reset();$('save-status').textContent='';
+ $('over-lion').hidden=$('congrats-lion').hidden=!pendingRun.lion;
  if(pendingRun.finished){for(const k of ['score','distance','coins'])$('congrats-'+k).textContent=pendingRun[k].toLocaleString();display('congrats');congratsTimer=setTimeout(showSave,CONGRATS_SECONDS*1000);}
  else display('over');
 });

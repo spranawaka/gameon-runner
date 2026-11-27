@@ -1,7 +1,7 @@
 export const BIOMES=new Set(['forest','coast','canyon','cave','ruins','colombo']);
 export function validateScore(body) {
  if(!body||typeof body!=='object'||Array.isArray(body))throw new Error('Please enter your name and email.');
- const allowed=new Set(['name','email','distance','coins','biome']);
+ const allowed=new Set(['name','email','distance','coins','biome','lion']);
  if(Object.keys(body).some(k=>!allowed.has(k)))throw new Error('Unexpected score fields.');
  if(typeof body.name!=='string'||typeof body.email!=='string')throw new Error('Name and email are required.');
  const name=body.name.trim().replace(/\s+/g,' '),email=body.email.trim().toLowerCase();
@@ -10,7 +10,8 @@ export function validateScore(body) {
  if(!Number.isSafeInteger(body.distance)||body.distance<0||body.distance>1000000)throw new Error('Invalid run distance.');
  if(!Number.isSafeInteger(body.coins)||body.coins<0||body.coins>Math.ceil((body.distance+2)*1.5))throw new Error('Invalid coin count.');
  if(!BIOMES.has(body.biome))throw new Error('Invalid trail.');
- return {name,email,distance:body.distance,coins:body.coins,biome:body.biome,score:body.distance+body.coins*25};
+ if(body.lion!==undefined&&typeof body.lion!=='boolean')throw new Error('Invalid bonus item.');
+ return {name,email,distance:body.distance,coins:body.coins,biome:body.biome,lion:body.lion===true,score:body.distance+body.coins*25};
 }
 export class MongoScoreStore {
  constructor(collection){this.collection=collection;}
@@ -23,6 +24,7 @@ export class MongoScoreStore {
    bestScore:{$max:[{$ifNull:['$bestScore',0]},run.score]},
    distance:{$cond:[improved,run.distance,'$distance']},coins:{$cond:[improved,run.coins,'$coins']},
    biome:{$cond:[improved,{$literal:run.biome},'$biome']},
+   lion:{$or:[{$eq:['$lion',true]},{$literal:run.lion===true}]}, // ever collected a Lion Strong can
    bestAt:{$cond:[improved,now,'$bestAt']},createdAt:{$ifNull:['$createdAt',now]},updatedAt:now
   }}];
   let doc;
@@ -31,13 +33,13 @@ export class MongoScoreStore {
   return {bestScore:doc.bestScore,submittedScore:run.score};
  }
  async leaderboard(limit=10){
-  const docs=await this.collection.find({},{projection:{_id:0,name:1,bestScore:1,distance:1,coins:1,biome:1,bestAt:1}}).sort({bestScore:-1,bestAt:1,_id:1}).limit(limit).toArray();
-  return docs.map((doc,i)=>({rank:i+1,name:doc.name,score:doc.bestScore,distance:doc.distance,coins:doc.coins,biome:doc.biome}));
+  const docs=await this.collection.find({},{projection:{_id:0,name:1,bestScore:1,distance:1,coins:1,biome:1,lion:1,bestAt:1}}).sort({bestScore:-1,bestAt:1,_id:1}).limit(limit).toArray();
+  return docs.map((doc,i)=>({rank:i+1,name:doc.name,score:doc.bestScore,distance:doc.distance,coins:doc.coins,biome:doc.biome,lion:doc.lion===true}));
  }
 }
 // Explicit test mode only. Production never silently falls back to memory.
 export class MemoryScoreStore {
  constructor(){this.players=new Map();}
- async save(run){const old=this.players.get(run.email);const doc=!old||run.score>old.score?{...run,at:Date.now()}:{...old,name:run.name};this.players.set(run.email,doc);return {bestScore:doc.score,submittedScore:run.score};}
- async leaderboard(limit=10){return [...this.players.values()].sort((a,b)=>b.score-a.score||a.at-b.at||a.email.localeCompare(b.email)).slice(0,limit).map((r,i)=>({rank:i+1,name:r.name,score:r.score,distance:r.distance,coins:r.coins,biome:r.biome}));}
+ async save(run){const old=this.players.get(run.email);const doc=!old||run.score>old.score?{...run,at:Date.now()}:{...old,name:run.name};doc.lion=!!(old?.lion||run.lion);this.players.set(run.email,doc);return {bestScore:doc.score,submittedScore:run.score};}
+ async leaderboard(limit=10){return [...this.players.values()].sort((a,b)=>b.score-a.score||a.at-b.at||a.email.localeCompare(b.email)).slice(0,limit).map((r,i)=>({rank:i+1,name:r.name,score:r.score,distance:r.distance,coins:r.coins,biome:r.biome,lion:r.lion===true}));}
 }

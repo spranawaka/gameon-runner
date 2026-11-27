@@ -122,12 +122,12 @@ const giftTemplate=new T.Group();{const wrap=gloss('#a54cf5','#7b2fe0'),ribbon=g
  for(const [x,y,s]of[[-.6,.2,.07],[-.5,-.04,.045],[.6,.3,.065]]){const m=mesh(new T.ShapeGeometry(star),spark,giftTemplate,x,y,0);m.scale.setScalar(s);m.castShadow=false;}
  giftTemplate.scale.setScalar(1.1);}
 // Colombo-only props (Lanka Metro bus, three-wheeler, yellow road barrier). Loaded only when the Colombo map is chosen.
-const TUK_SCALE=1.4;const COLOMBO_PROPS={bus:{url:'assets/colombo/Lanka-Metro-Bus.glb',len:11.9,speed:9},tuk:{url:'assets/colombo/Three-Wheel.glb',len:2.5*TUK_SCALE,speed:7,scale:TUK_SCALE},ybarrier:{url:'assets/colombo/Yellow-Barrier.glb'},sbarrier:{url:'assets/colombo/final-Runner-Slide-Barrier.glb'},cart:{url:'assets/colombo/Handcart.glb',ramp:true}};
+const TUK_SCALE=1.4;const COLOMBO_PROPS={bus:{url:'assets/colombo/Lanka-Metro-Bus.glb',len:11.9,speed:9},tuk:{url:'assets/colombo/Three-Wheel.glb',len:2.5*TUK_SCALE,speed:7,scale:TUK_SCALE},ybarrier:{url:'assets/colombo/Yellow-Barrier.glb'},sbarrier:{url:'assets/colombo/final-Runner-Slide-Barrier.glb',banner:'assets/colombo/banner-image/banner-2.webp'},cart:{url:'assets/colombo/Handcart.glb',ramp:true}};
 const templates={coin:coinTemplate,log:logTemplate,rock:rockTemplate,barrier:barrierTemplate,magnet:magnetTemplate,gift:giftTemplate,bus:new T.Group(),tuk:new T.Group(),ybarrier:new T.Group(),sbarrier:new T.Group(),cart:new T.Group()};templates.pbus=templates.bus;const pools={coin:[],log:[],rock:[],barrier:[],magnet:[],gift:[],bus:[],tuk:[],ybarrier:[],sbarrier:[],cart:[],pbus:[]};
 // Three-wheeler colours: the red model plus repainted green, blue and yellow copies.
 const TUK_PAINT={tuk_red:null,tuk_green:'#1e8f3e',tuk_blue:'#1f5fbf',tuk_yellow:'#f2c400'},TUK_COLOURS=Object.keys(TUK_PAINT);for(const k of TUK_COLOURS){templates[k]=new T.Group();pools[k]=[];}
 // Lion Strong can: special pickup in Colombo. Missed cans come back, a bit easier each time (see LION_GAP below).
-const LION={url:'assets/colombo/lion-strong.glb',height:1.05,y:5.0,bonus:50};
+const LION={url:'assets/colombo/final-apple-beer.glb',height:1.05,y:5.0,bonus:50};
 const lionTemplate=new T.Group();lionTemplate.name='lion';templates.lion=lionTemplate;pools.lion=[];let lionLoading=null;
 function lionRays(){const c=document.createElement('canvas');c.width=c.height=512;const g=c.getContext('2d'),m=256;
  const fade=g.createRadialGradient(m,m,0,m,m,m);fade.addColorStop(0,'rgba(255,246,190,1)');fade.addColorStop(.3,'rgba(255,205,70,.8)');fade.addColorStop(1,'rgba(255,150,0,0)');g.fillStyle=fade;
@@ -148,39 +148,31 @@ function loadLion(){return lionLoading||=loader.loadAsync(LION.url).then(({scene
   ring.add(new T.Mesh(new T.TorusGeometry(.78,.045,12,72),new T.MeshStandardMaterial({color:'#ffd34d',emissive:'#ffb300',emissiveIntensity:.9,metalness:.6,roughness:.25})));
   const sparkMat=new T.MeshBasicMaterial({color:'#fff6c8'});for(let i=0;i<5;i++){const a=i/5*Math.PI*2,sp=new T.Mesh(new T.OctahedronGeometry(.07),sparkMat);sp.position.set(Math.cos(a)*.78,Math.sin(a)*.78,0);ring.add(sp);}
   const ring2=new T.Mesh(new T.TorusGeometry(.95,.018,8,72),new T.MeshBasicMaterial({color:'#fff1a8',transparent:true,opacity:.55,blending:T.AdditiveBlending,depthWrite:false}));ring2.name='lionRing2';tilt.add(ring2);
-}).catch(e=>console.error('lion-strong.glb',e));}
-// Lion cans: the player keeps getting new chances until one is collected. Each retry is a little easier, never free:
-//  try 1: in the air above the middle lane, reachable only by jumping off the first parked bus roof
-//  try 2: on top of a parked bus roof (climb the handcart, run along the roof)
-//  try 3: above a yellow barrier - jump high over it to grab the can
-//  try 4+: alternates: under a hazard barrier (slide under it) / above a yellow barrier (jump over it)
-const LION_GAP=60; // extra metres after a miss before the next can is placed (on top of the ~115 m spawn look-ahead)
-let lionGot=false,lionTry=0,lionActive=false,lionNextAt=0;
-function lionReset(){lionGot=lionActive=false;lionTry=0;lionNextAt=0;}
+}).catch(e=>console.error('final-apple-beer.glb',e));}
+// Lion cans: the player keeps getting new chances until one is collected, and every chance is the same
+// (hard) one: in the air above the middle lane of a bus yard, reachable only by jumping off the first bus roof.
+// After a miss the next bus yard comes LION_GAP metres sooner than usual and carries a new can.
+const LION_GAP=60;
+let lionGot=false,lionTry=0,lionActive=false;
+function lionReset(){lionGot=lionActive=false;lionTry=0;}
 function placeLion(lane,d,y,hint){if(lionGot||lionActive||!lionTemplate.children.length)return null;lionActive=true;
  const e=addEntity('lion',lane,d,y);e.obj.scale.setScalar(1);e.obj.position.x=LANES[lane];
  if(hint){addEntity('coin',lane,d-2.6,y-.9);addEntity('coin',lane,d-1.4,y-.45);}return e;}
-// Called from the bus yard (tries 1 and 2).
-function spawnLion(busStart){if(lionTry===0)placeLion(1,busStart+BUS_LEN*.75,LION.y,true);
- else if(lionTry===1&&spawnAt>=lionNextAt)placeLion(2,busStart+BUS_LEN*.6,BUS_TOP+1.9,false);}
-// Called from spawnRow (tries 3+): a barrier with the can on it, in a lane kept clear of other obstacles and tuks.
-function spawnRoadLion(reserved){if(lionGot||lionActive||lionTry<2||spawnAt<lionNextAt)return;
- const free=[1,0,2].filter(l=>!reserved[l]);if(!free.length)return;const ln=free[Math.floor(Math.random()*free.length)];
- const guard=lionTry%2===0?'ybarrier':'sbarrier',d=spawnAt+9;
- const e=placeLion(ln,d,guard==='ybarrier'?POWER_Y.ybarrier+.25:.62,false);if(!e)return;
- e.lionGuard=guard;e.obj.scale.setScalar(.85);addEntity(guard,ln,d);
- reserved[ln]=true;laneFree[ln]=Math.max(laneFree[ln],spawnAt+30);}
-function lionMissed(){lionActive=false;if(lionGot)return;lionTry++;lionNextAt=spawnAt+LION_GAP;if(lionTry===1)nextYardAt=lionNextAt;
- toast('🦁 Missed it! Another Lion Strong ahead');}
+function spawnLion(busStart){placeLion(1,busStart+BUS_LEN*.75,LION.y,true);}
+function lionMissed(){lionActive=false;if(lionGot)return;lionTry++;nextYardAt=Math.min(nextYardAt,spawnAt+LION_GAP);
+ toast('🍏 Missed it! Another Somersby Apple at the next bus yard');}
 // Returns true when the entity should be removed.
 function updateLion(e,prev,dt){const o=e.obj,p=e.parts||(e.parts={can:o.getObjectByName('lionCan'),rays:o.getObjectByName('lionRays'),rays2:o.getObjectByName('lionRays2'),ring:o.getObjectByName('lionRing'),ring2:o.getObjectByName('lionRing2')});
  p.can.rotation.y+=dt*2.6;p.rays.rotation.z+=dt*.5;p.rays2.rotation.z-=dt*.8;p.ring.rotation.z+=dt*3.2;p.ring2.rotation.z-=dt*1.4;
  const pulse=1+Math.sin(elapsed*5)*.08;p.rays.scale.setScalar(pulse);p.rays2.scale.setScalar(2-pulse);
  if(e.got){e.t+=dt;o.position.lerp(magnetTarget,1-Math.exp(-12*dt));o.scale.setScalar(Math.max(.01,1+e.t*1.5-e.t*e.t*9));return e.t>.45;}
  o.position.z=distance-e.d;o.position.y=e.y+Math.sin(elapsed*3)*.12;
- if(!e.checked&&crossed(prev,o.position.z,.9)){e.checked=true;if(Math.abs(x-LANES[e.lane])<1&&(e.lionGuard?!hit(e.lionGuard,height-ground,slideLeft>0):Math.abs(height+1-e.y)<1)){e.got=true;e.t=0;lionGot=true;lionActive=false;coinCount+=LION.bonus;playSfx('gift');toast('🦁 LION STRONG! +'+LION.bonus+' coins');setTimeout(()=>{if(state==='playing')document.dispatchEvent(new CustomEvent('lion-promo'));},700);}else lionMissed();}
+ if(!e.checked&&crossed(prev,o.position.z,.9)){e.checked=true;if(Math.abs(x-LANES[e.lane])<1&&(e.lionGuard?!hit(e.lionGuard,height-ground,slideLeft>0):Math.abs(height+1-e.y)<1)){e.got=true;e.t=0;lionGot=true;lionActive=false;coinCount+=LION.bonus;playSfx('gift');toast('🍏 SOMERSBY APPLE! +'+LION.bonus+' coins');setTimeout(()=>{if(state==='playing')document.dispatchEvent(new CustomEvent('lion-promo'));},700);}else lionMissed();}
  return o.position.z>9;}
-async function loadColomboProps(){await loadLion();await Promise.all(Object.entries(COLOMBO_PROPS).map(async([k,p])=>{if(templates[k].children.length)return;const {scene:m}=await loader.loadAsync(p.url);if(p.ramp){templates[k].add(makeRamp(m));return;}if(p.len)m.rotation.y=-Math.PI/2;if(p.scale)m.scale.setScalar(p.scale);templates[k].add(mergeProp(m));}));for(const [k,paint]of Object.entries(TUK_PAINT)){if(templates[k].children.length)continue;const v=templates.tuk.clone(true);if(paint)v.traverse(o=>{if(o.isMesh&&o.material.name==='Body_Paint'){o.material=o.material.clone();o.material.color.set(paint);}});templates[k].add(v);}renderer.compile(scene,camera);}
+// Put our own image on a model's banner board (material 'BannerDisplayMaterial', full 0..1 UVs, 1.846:1).
+async function swapBanner(root,url){try{const tex=await new T.TextureLoader().loadAsync(url);tex.flipY=false;tex.colorSpace=T.SRGBColorSpace;tex.anisotropy=8;
+ root.traverse(o=>{if(o.isMesh&&o.material?.name==='BannerDisplayMaterial'){o.material=o.material.clone();o.material.map=tex;o.material.needsUpdate=true;}});}catch(e){console.error('banner image',url,e);}}
+async function loadColomboProps(){await loadLion();await Promise.all(Object.entries(COLOMBO_PROPS).map(async([k,p])=>{if(templates[k].children.length)return;const {scene:m}=await loader.loadAsync(p.url);if(p.banner)await swapBanner(m,p.banner);if(p.ramp){templates[k].add(makeRamp(m));return;}if(p.len)m.rotation.y=-Math.PI/2;if(p.scale)m.scale.setScalar(p.scale);templates[k].add(mergeProp(m));}));for(const [k,paint]of Object.entries(TUK_PAINT)){if(templates[k].children.length)continue;const v=templates.tuk.clone(true);if(paint)v.traverse(o=>{if(o.isMesh&&o.material.name==='Body_Paint'){o.material=o.material.clone();o.material.color.set(paint);}});templates[k].add(v);}renderer.compile(scene,camera);}
 // Detailed Blender models have 150-300 parts each. Merge every model into one mesh per material
 // (a few draw calls instead of hundreds) and swap glass 'transmission' (which re-renders the whole
 // scene every frame) for cheap transparent glass.
@@ -215,7 +207,6 @@ function spawnYard(){const n=2+(Math.random()<.5?1:0),gap=4.5+Math.random()*1.5,
  spawnLion(busStart);laneFree=[end+6,end+6,end+6];spawnAt=end+18;nextYardAt=spawnAt+380+Math.random()*260;}
 function spawnRow(){const row=Math.round((spawnAt-22)/18),city=chosen==='colombo',reserved=laneFree.map(v=>v>spawnAt);
  if(city&&spawnAt>CITY_FINISH_DIST-30){spawnAt+=18;return;}
- if(city)spawnRoadLion(reserved);
  // Colombo: oncoming bus / three-wheeler. Its lane stays clear of other obstacles while it drives through the rows behind it.
  if(city&&row>=5&&!reserved.some(Boolean)&&spawnAt>=nextYardAt&&spawnAt<CITY_FINISH_DIST-120){spawnYard();return;}
  if(city&&row>=3&&!reserved.some(Boolean)&&Math.random()<.3){const ln=Math.floor(Math.random()*3),kind=TUK_COLOURS[Math.floor(Math.random()*TUK_COLOURS.length)];addEntity(kind,ln,spawnAt).vehicle=COLOMBO_PROPS.tuk;laneFree[ln]=spawnAt+18*6;const safe=(ln+1+Math.floor(Math.random()*2))%3;for(let j=0;j<6;j++)addEntity('coin',safe,spawnAt-7+j*1.6);spawnAt+=18;return;}
@@ -237,7 +228,7 @@ function updateFinish(dt){finishT+=dt;const k=Math.min(finishT/.55,1);distance=C
  height=Math.max(ground,ground+.55*Math.sin(Math.min(finishT/.5,1)*Math.PI));body.rotation.x=-.5*Math.sin(Math.min(finishT/.9,1)*Math.PI);
  camera.position.x+=Math.sin(finishT*60)*.06*Math.max(0,1-finishT*2);
  if(finishT>1.4&&!finishDone){finishDone=true;body.rotation.x=0;finishRun('finish');}}
-function finishRun(kind){updateHUD();showState('over');document.dispatchEvent(new CustomEvent('game-over',{detail:{finished:kind==='finish',distance:Math.floor(distance),coins:coinCount,score:scoreFor(distance,coinCount),biome:chosen,cause:kind==='finish'?'You reached Morven Hotel - Colombo run complete!':kind==='pbus'?'Use the handcart to climb onto the parked buses, and jump the gaps between them.':kind==='cart'?'Jump onto the handcart from the low end.':kind==='bus'?'Change lanes before the Lanka Metro bus reaches you.':kind.startsWith('tuk')?'Watch out for oncoming three-wheelers - change lanes!':kind==='ybarrier'?'Jump over yellow barriers or change lanes.':kind==='sbarrier'?'Squat to slide under the hazard barriers.':kind==='barrier'?'Squat to slide under striped barriers.':kind==='rock'?'Step or lean to dodge rocks, or time a high jump.':'Jump over fallen logs.'}}));playSfx('hit');}
+function finishRun(kind){updateHUD();showState('over');document.dispatchEvent(new CustomEvent('game-over',{detail:{finished:kind==='finish',lion:lionGot,distance:Math.floor(distance),coins:coinCount,score:scoreFor(distance,coinCount),biome:chosen,cause:kind==='finish'?'You reached Morven Hotel - Colombo run complete!':kind==='pbus'?'Use the handcart to climb onto the parked buses, and jump the gaps between them.':kind==='cart'?'Jump onto the handcart from the low end.':kind==='bus'?'Change lanes before the Lanka Metro bus reaches you.':kind.startsWith('tuk')?'Watch out for oncoming three-wheelers - change lanes!':kind==='ybarrier'?'Jump over yellow barriers or change lanes.':kind==='sbarrier'?'Squat to slide under the hazard barriers.':kind==='barrier'?'Squat to slide under striped barriers.':kind==='rock'?'Step or lean to dodge rocks, or time a high jump.':'Jump over fallen logs.'}}));playSfx('hit');}
 
 function action(a){
  if(state!=='playing')return;
