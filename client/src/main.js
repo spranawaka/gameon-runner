@@ -1,10 +1,25 @@
 import {game} from './game.js';
 import {PoseMotion} from './pose-motion.js';
 import {CameraControls} from './camera.js';
+import {dancer} from './promo-dancer.js';
 const $=id=>document.getElementById(id);
-const screens=['menu','setup','countdown','paused','revive','over'];
+const screens=['menu','setup','countdown','paused','revive','promo','congrats','over'];
 let flow='menu',mode='camera',pendingRun=null,saving=false,countTimer=null,lastPose=0,lostSince=0,countRemaining=5,countLast=0,requestToken=0,reviveTimer=null;
 const REVIVE_SECONDS=6;
+// Sponsor popup shown after a Lion Strong can is collected: the run holds for PROMO_SECONDS, then continues.
+const PROMO_SECONDS=10,CONGRATS_SECONDS=7;let promoTimer=null,congratsTimer=null;
+function stopPromo(){clearInterval(promoTimer);promoTimer=null;dancer.stop();}
+function setPromo(left){$('promo-number').textContent=left>0?String(Math.ceil(left)):'GO!';$('promo-bar').style.width=Math.max(0,left/PROMO_SECONDS*100)+'%';}
+function showPromo(){
+ if(flow!=='playing')return;stopPromo();game.setSquat(false);display('promo');game.pause();dancer.start($('promo-dancer'));
+ let left=PROMO_SECONDS,lastTick=performance.now();$('promo-text').textContent='Game continues in';setPromo(left);game.sfx('count');
+ promoTimer=setInterval(()=>{const now=performance.now(),dt=Math.min((now-lastTick)/1000,1);lastTick=now;if(document.hidden)return;
+  if(left>0){const before=Math.ceil(left);left-=dt;setPromo(left);if(left>0&&Math.ceil(left)!==before&&left<=3.01)game.sfx('count');if(left>0)return;game.sfx('go');}
+  if(mode==='camera'&&(!camera.active||now-lastPose>650)){$('promo-text').textContent='Step into view of the webcam to continue';$('promo-number').textContent='';return;}
+  stopPromo();display('playing');game.resume();
+ },80);
+}
+function showSave(){clearTimeout(congratsTimer);congratsTimer=null;if(flow==='congrats')display('over');}
 const motion=new PoseMotion();
 function display(next){
  flow=next;document.body.dataset.screen=next;for(const id of screens)$(id).hidden=id!==next;
@@ -16,7 +31,7 @@ function setStatus(text){$('setup-status').textContent=text;}
 function updateReady(){if(flow==='menu'){$('play').disabled=!game.ready;$('play').textContent=game.ready?'START ▶':'Preparing your trail…';if(game.ready)$('load-status').textContent=mode==='camera'?'Webcam controls · no login needed':'Keyboard controls · no login needed';}}
 function setMode(next){mode=next;for(const name of ['camera','keyboard']){$('mode-'+name).classList.toggle('active',name===mode);$('mode-'+name).setAttribute('aria-pressed',String(name===mode));}updateReady();}
 function stopCount(){clearInterval(countTimer);countTimer=null;}
-function home(){requestToken++;stopCount();stopRevive();camera.stop();motion.reset();pendingRun=null;$('score-form').reset();$('save-status').textContent='';game.setSquat(false);game.home();display('menu');updateReady();}
+function home(){requestToken++;stopCount();stopRevive();stopPromo();clearTimeout(congratsTimer);camera.stop();motion.reset();pendingRun=null;$('score-form').reset();$('save-status').textContent='';game.setSquat(false);game.home();display('menu');updateReady();}
 function pause(reason='Your next step can wait.') {if(flow!=='playing')return;game.setSquat(false);$('pause-reason').textContent=reason;game.pause();display('paused');}
 function drawPose(points){
  const ctx=$('pose-overlay').getContext('2d'),w=320,h=240;ctx.clearRect(0,0,w,h);if(!points)return;
@@ -113,6 +128,7 @@ addEventListener('keydown',e=>{
  if(e.code==='Escape'||e.code==='KeyP'){
   if(e.repeat)return;e.preventDefault();if(flow==='playing')pause();else if(flow==='paused')$('resume').click();else if(flow==='revive')endRevive();else if(['setup','countdown'].includes(flow))home();return;
  }
+ if(flow==='congrats'&&['Space','Enter'].includes(e.code)){e.preventDefault();showSave();return;}
  if(flow==='revive'&&['Space','Enter','ArrowUp','KeyW'].includes(e.code)){e.preventDefault();if(!e.repeat)continueRun();return;}
  if(flow==='playing'&&mode==='keyboard'&&keys[e.code]){e.preventDefault();if(!e.repeat)game.action(keys[e.code]);}
 });
@@ -120,10 +136,14 @@ document.addEventListener('game-ready',updateReady);
 document.addEventListener('game-revive',offerRevive);
 document.addEventListener('game-state',e=>{if(e.detail==='paused'&&flow==='playing')display('paused');});
 document.addEventListener('game-over',e=>{
- requestToken++;stopCount();stopRevive();camera.stop();game.setSquat(false);pendingRun=Object.freeze({...e.detail});
- $('final-score').textContent=pendingRun.score.toLocaleString();$('final-distance').textContent=pendingRun.distance.toLocaleString();$('final-coins').textContent=pendingRun.coins.toLocaleString();$('cause').textContent=pendingRun.cause;$('score-form').reset();$('save-status').textContent='';display('over');
+ requestToken++;stopCount();stopRevive();stopPromo();camera.stop();game.setSquat(false);pendingRun=Object.freeze({...e.detail});
+ $('final-score').textContent=pendingRun.score.toLocaleString();$('final-distance').textContent=pendingRun.distance.toLocaleString();$('final-coins').textContent=pendingRun.coins.toLocaleString();$('cause').textContent=pendingRun.cause;$('score-form').reset();$('save-status').textContent='';
+ if(pendingRun.finished){for(const k of ['score','distance','coins'])$('congrats-'+k).textContent=pendingRun[k].toLocaleString();display('congrats');congratsTimer=setTimeout(showSave,CONGRATS_SECONDS*1000);}
+ else display('over');
 });
+document.addEventListener('lion-promo',showPromo);
+$('congrats-next').onclick=showSave;
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&flow==='playing')pause('The tab was hidden. Continue when you are ready.');});
 setInterval(()=>{if(mode==='camera'&&flow==='playing'&&performance.now()-lastPose>2000)pause('Tracking paused. Stand where your shoulders and hips are visible.');},500);
 addEventListener('pagehide',()=>camera.stop());
-display('menu');updateReady();loadLeaderboard();
+display('menu');updateReady();loadLeaderboard();setTimeout(()=>dancer.preload(),4000);

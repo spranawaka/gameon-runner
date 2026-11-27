@@ -1,4 +1,4 @@
-export const BIOMES=new Set(['forest','coast','canyon','cave','ruins']);
+export const BIOMES=new Set(['forest','coast','canyon','cave','ruins','colombo']);
 export function validateScore(body) {
  if(!body||typeof body!=='object'||Array.isArray(body))throw new Error('Please enter your name and email.');
  const allowed=new Set(['name','email','distance','coins','biome']);
