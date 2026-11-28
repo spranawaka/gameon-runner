@@ -149,18 +149,30 @@ function loadLion(){return lionLoading||=loader.loadAsync(LION.url).then(({scene
   const sparkMat=new T.MeshBasicMaterial({color:'#fff6c8'});for(let i=0;i<5;i++){const a=i/5*Math.PI*2,sp=new T.Mesh(new T.OctahedronGeometry(.07),sparkMat);sp.position.set(Math.cos(a)*.78,Math.sin(a)*.78,0);ring.add(sp);}
   const ring2=new T.Mesh(new T.TorusGeometry(.95,.018,8,72),new T.MeshBasicMaterial({color:'#fff1a8',transparent:true,opacity:.55,blending:T.AdditiveBlending,depthWrite:false}));ring2.name='lionRing2';tilt.add(ring2);
 }).catch(e=>console.error('final-apple-beer.glb',e));}
-// Lion cans: the player keeps getting new chances until one is collected, and every chance is the same
-// (hard) one: in the air above the middle lane of a bus yard, reachable only by jumping off the first bus roof.
+// Lion cans: the player keeps getting new chances until one is collected, each one a bit easier:
+//  try 1: on the roof of the first parked bus (climb the handcart, jump onto the bus, run into the can)
+//  try 2: above a yellow barrier - jump high over the barrier to grab it
+//  try 3: above the road - a normal jump grabs it
+//  try 4+: at running height on the road - just run into it
 // After a miss the next bus yard comes LION_GAP metres sooner than usual and carries a new can.
 const LION_GAP=60;
-let lionGot=false,lionTry=0,lionActive=false;
-function lionReset(){lionGot=lionActive=false;lionTry=0;}
+let lionGot=false,lionTry=0,lionActive=false,lionNextAt=0;
+function lionReset(){lionGot=lionActive=false;lionTry=0;lionNextAt=0;}
 function placeLion(lane,d,y,hint){if(lionGot||lionActive||!lionTemplate.children.length)return null;lionActive=true;
  const e=addEntity('lion',lane,d,y);e.obj.scale.setScalar(1);e.obj.position.x=LANES[lane];
  if(hint){addEntity('coin',lane,d-2.6,y-.9);addEntity('coin',lane,d-1.4,y-.45);}return e;}
-function spawnLion(busStart){placeLion(1,busStart+BUS_LEN*.75,LION.y,true);}
-function lionMissed(){lionActive=false;if(lionGot)return;lionTry++;nextYardAt=Math.min(nextYardAt,spawnAt+LION_GAP);
- toast('🍏 Missed it! Another Somersby Apple at the next bus yard');}
+// The can stands on the roof of the first parked bus: climb the handcart, jump onto the bus and run into it.
+// (Too high to reach from the road.) Roof coins right at the can are removed so they don't overlap it.
+function spawnLion(busStart){if(lionTry>0)return;const d=busStart+BUS_LEN*.6;if(!placeLion(2,d,BUS_TOP+1.35,false))return;
+ for(let i=entities.length-1;i>=0;i--){const e=entities[i];if(e.kind==='coin'&&e.lane===2&&Math.abs(e.d-d)<1.4){release(e);entities.splice(i,1);}}}
+// Tries 2+ (called from spawnRow): placed in a lane kept clear of other obstacles and three-wheelers.
+function spawnRoadLion(reserved){if(lionGot||lionActive||lionTry<1||spawnAt<lionNextAt)return;
+ const free=[1,0,2].filter(l=>!reserved[l]);if(!free.length)return;const ln=free[Math.floor(Math.random()*free.length)],d=spawnAt+9;
+ const y=lionTry===1?POWER_Y.ybarrier+.25:lionTry===2?2.6:1.05;const e=placeLion(ln,d,y,false);if(!e)return;
+ if(lionTry===1){e.lionGuard='ybarrier';e.obj.scale.setScalar(.85);addEntity('ybarrier',ln,d);}
+ reserved[ln]=true;laneFree[ln]=Math.max(laneFree[ln],spawnAt+30);}
+function lionMissed(){lionActive=false;if(lionGot)return;lionTry++;lionNextAt=spawnAt+LION_GAP;
+ toast('🍏 Missed it! Another Somersby Apple ahead');}
 // Returns true when the entity should be removed.
 function updateLion(e,prev,dt){const o=e.obj,p=e.parts||(e.parts={can:o.getObjectByName('lionCan'),rays:o.getObjectByName('lionRays'),rays2:o.getObjectByName('lionRays2'),ring:o.getObjectByName('lionRing'),ring2:o.getObjectByName('lionRing2')});
  p.can.rotation.y+=dt*2.6;p.rays.rotation.z+=dt*.5;p.rays2.rotation.z-=dt*.8;p.ring.rotation.z+=dt*3.2;p.ring2.rotation.z-=dt*1.4;
@@ -207,6 +219,7 @@ function spawnYard(){const n=2+(Math.random()<.5?1:0),gap=4.5+Math.random()*1.5,
  spawnLion(busStart);laneFree=[end+6,end+6,end+6];spawnAt=end+18;nextYardAt=spawnAt+380+Math.random()*260;}
 function spawnRow(){const row=Math.round((spawnAt-22)/18),city=chosen==='colombo',reserved=laneFree.map(v=>v>spawnAt);
  if(city&&spawnAt>CITY_FINISH_DIST-30){spawnAt+=18;return;}
+ if(city)spawnRoadLion(reserved);
  // Colombo: oncoming bus / three-wheeler. Its lane stays clear of other obstacles while it drives through the rows behind it.
  if(city&&row>=5&&!reserved.some(Boolean)&&spawnAt>=nextYardAt&&spawnAt<CITY_FINISH_DIST-120){spawnYard();return;}
  if(city&&row>=3&&!reserved.some(Boolean)&&Math.random()<.3){const ln=Math.floor(Math.random()*3),kind=TUK_COLOURS[Math.floor(Math.random()*TUK_COLOURS.length)];addEntity(kind,ln,spawnAt).vehicle=COLOMBO_PROPS.tuk;laneFree[ln]=spawnAt+18*6;const safe=(ln+1+Math.floor(Math.random()*2))%3;for(let j=0;j<6;j++)addEntity('coin',safe,spawnAt-7+j*1.6);spawnAt+=18;return;}
